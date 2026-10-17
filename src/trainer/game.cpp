@@ -17,7 +17,7 @@ Config loadConfig(const std::string& path) {
         {"open", &c.open}, {"sbOpen", &c.sbOpen},
         {"threeBetIP", &c.threeBetIP}, {"threeBetOOP", &c.threeBetOOP},
         {"fourBetIP", &c.fourBetIP}, {"fourBetOOP", &c.fourBetOOP}, {"tick", &c.tick},
-        {"squeezeCall", &c.squeezeCall},
+        {"squeezeCall", &c.squeezeCall}, {"rake", &c.rake}, {"rakeCap", &c.rakeCap},
     };
     std::ifstream in(path);
     if (!in) throw std::runtime_error("cannot open config " + path);

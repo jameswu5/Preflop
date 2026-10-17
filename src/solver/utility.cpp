@@ -11,14 +11,38 @@ static std::array<bool, NPOS> liveSeats(const Hand& h) {
     return live;
 }
 
-double realization(const RealizationConfig& rc, bool lastToAct, bool raiser, double spr, Card a, Card b) {
+int straights(Card a, Card b) {
+    int hi = std::max(a.rank, b.rank), lo = std::min(a.rank, b.rank), n = 0;
+    if (hi == lo) return 0;
+    for (int s = -1; s <= 8; ++s) {  // ranks s..s+4; s = -1 is the wheel, where the ace plays low
+        auto in = [&](int r) { return (r >= s && r <= s + 4) || (s == -1 && r == 12); };
+        n += in(hi) && in(lo);
+    }
+    return n;
+}
+
+int domination(Card a, Card b) {
     int hi = std::max(a.rank, b.rank), lo = std::min(a.rank, b.rank);
-    double r = hi == lo ? rc.pair : a.suit == b.suit ? rc.suited : rc.offsuit;
-    if (hi != lo) r -= rc.gap * std::min(hi - lo - 1, 4);
-    if (hi != lo && a.suit != b.suit) r -= rc.low * (12 - hi);  // pairs/suited realize via sets/draws
-    r *= (lastToAct ? rc.ip : rc.oop) * (raiser ? 1 + rc.init : 1);
-    if (rc.spr > 0) r = 1 - (1 - r) * spr / (spr + rc.spr);
-    return std::max(r, 0.05);
+    if (hi == lo || a.suit == b.suit || hi < 8) return 0;  // 8 = T
+    return std::min(hi - 1 - lo, 4);
+}
+
+double realization(const RealizationConfig& rc, bool lastToAct, bool raiser, double spr, Card a, Card b) {
+    int hi = std::max(a.rank, b.rank);
+    bool pair = a.rank == b.rank, suited = a.suit == b.suit;
+    double g = rc.spr > 0 ? spr / (spr + rc.spr) : 1;
+    double pos = lastToAct ? rc.ip : 1 - (1 - rc.oop) * g;
+    double h = 1 + rc.flush * suited + rc.conn * straights(a, b) * g + rc.set * pair * g -
+               rc.dom * domination(a, b) * !raiser - rc.low * (12 - hi) * (!pair && !suited) -
+               rc.pairLow * (12 - hi) * pair;
+    return std::max(pos * h * (raiser ? 1 + rc.init : 1), 0.05);
+}
+
+double rake(const Hand& h) {
+    int live = 0;
+    for (int p = 0; p < NPOS; ++p) live += !h.folded(p);
+    if (live < 2) return 0;  // no flop, no drop
+    return std::min(h.config().rake * h.pot(), h.config().rakeCap);
 }
 
 bool allIn(const Hand& h) {
@@ -49,7 +73,8 @@ std::array<double, NPOS> payoffs(const Hand& h, const std::array<double, NPOS>& 
         for (double& s : share) s /= sum;
     }
     std::array<double, NPOS> out;
-    for (int p = 0; p < NPOS; ++p) out[p] = share[p] * h.pot() - h.committed(p);
+    double net = h.pot() - rake(h);
+    for (int p = 0; p < NPOS; ++p) out[p] = share[p] * net - h.committed(p);
     return out;
 }
 

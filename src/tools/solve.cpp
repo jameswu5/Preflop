@@ -3,11 +3,13 @@
 //              [--checkpoint file] [--out file] [--show FFFFR]...
 //   --seats      players left after forced folds at the root (2 = SB vs BB, 3 = BTN/SB/BB)
 //   --checkpoint resumed if it exists, rewritten after every chunk
+//   --warm       start from this checkpoint but never write it (read-only warm start, e.g. tune.py)
+//   --seed       RNG seed; when resuming a checkpoint, an explicit --seed replaces its saved RNG state
 //   --threads    worker threads (default 1 = bit-reproducible; more is faster but not reproducible)
 //   --boards     boards per multiway flop equity estimate (SolverConfig::flopBoards, default 100)
 //   --show       print the range at the node reached by these actions (F/C/R), after the last chunk;
 //                widths are weighted by how often each class reaches the node, "." = never
-//   --r key=val  realization factor (ip oop pair suited offsuit gap low spr init, utility.h), repeatable
+//   --r key=val  realization factor (ip oop flush conn set dom low spr init pairLow, utility.h), repeatable
 //   --report     print the validation.md sanity metrics
 //   --reset-average  after resuming, restart the strategy average (regrets kept): warm start
 #include <algorithm>
@@ -15,6 +17,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
 #include <string>
 
 #include "solver/cards.h"
@@ -86,18 +89,24 @@ static void report(const Strategy& s, int rootFolds) {
                     100 * open.width[2], 100 * bb.width[0], 100 * bb.width[1], 100 * bb.width[2], 100 * back.width[0],
                     100 * back.width[1], 100 * back.width[2], 100 * s.probs(back.node, aa)[2], 100 * s.probs(back.node, kk)[2]);
     }
-    // Flat vs 3-bet split: real solvers 3-bet offsuit broadways and flat the suited ones IP.
-    if (rootFolds <= CO) {
-        std::vector<Act> h(CO, Act::Fold);
-        h.push_back(Act::Raise);
-        Range r = rangeAt(s, h);
-        std::printf("  BTN vs CO open: 3-bet %.1f%%, flat %.1f%%;", 100 * r.width[2], 100 * r.width[1]);
-        for (const char* name : {"KJs", "KJo", "KQs", "KQo", "AJs", "AJo"}) {
-            auto& p = s.probs(r.node, bucketFromName(name));
-            std::printf("  %s r%.0f/c%.0f", name, 100 * p[2], 100 * p[1]);
+    // Bluff check: per-hand raise/call % where reference charts 3-bet or 4-bet light (wheel aces,
+    // suited connectors, K6s, KJo) and where we tend to 3-bet linearly (medium pairs, suited broadways).
+    auto hands = [&](const char* label, const std::string& hist, std::initializer_list<const char*> names) {
+        std::vector<Act> h;
+        Range r;
+        if (!parseHistory(hist, h) || (r = rangeAt(s, h)).node < 0 || s.actor(r.node) < rootFolds) return;
+        std::printf("  %s: raise %.1f%% call %.1f%% |", label, 100 * r.width[2], 100 * r.width[1]);
+        for (const char* n : names) {
+            auto& p = s.probs(r.node, bucketFromName(n));
+            std::printf(" %s %.0f/%.0f", n, 100 * p[2], 100 * p[1]);
         }
         std::printf("\n");
-    }
+    };
+    std::printf("  bluff check (hand raise%%/call%%):\n");
+    hands("BTN vs CO open  ", "FFR", {"A5s", "A4s", "K6s", "76s", "65s", "77", "55", "KJs", "KJo", "AJs", "AQo"});
+    hands("BB vs BTN open  ", "FFFRF", {"A5s", "A4s", "K6s", "76s", "87s", "77", "55", "KJs", "KJo", "ATs", "QJo"});
+    hands("CO vs BTN 3-bet ", "FFRRFF", {"A5s", "A4s", "A3s", "K5s", "AQo", "KJs", "JJ", "TT"});
+    hands("BTN vs BB 3-bet ", "FFFRFR", {"A5s", "A4s", "A3s", "A9s", "K5s", "AQo", "JJ", "TT"});
 }
 
 // Expected strategy change between a and b: each node's change (share of the actor's range, by
@@ -144,14 +153,14 @@ int main(int argc, char** argv) {
     int seats = 6, threads = 1, boards = SolverConfig{}.flopBoards;
     long iters = 1000000, chunk = 0;
     uint32_t seed = 1;
-    std::string cfgPath, ckPath, outPath = "strategy.bin", table = DATA_DIR "/hu_equity.bin";
+    std::string cfgPath, ckPath, warmPath, outPath = "strategy.bin", table = DATA_DIR "/hu_equity.bin";
     std::vector<std::string> shows;
-    bool doReport = false, resetAvg = false;
+    bool doReport = false, resetAvg = false, seedGiven = false;
     RealizationConfig rc;
     const std::pair<const char*, double*> rFields[] = {
-        {"ip", &rc.ip}, {"oop", &rc.oop}, {"pair", &rc.pair}, {"suited", &rc.suited},
-        {"offsuit", &rc.offsuit}, {"gap", &rc.gap}, {"low", &rc.low},
-        {"spr", &rc.spr}, {"init", &rc.init}};
+        {"ip", &rc.ip}, {"oop", &rc.oop}, {"flush", &rc.flush}, {"conn", &rc.conn},
+        {"set", &rc.set}, {"dom", &rc.dom}, {"low", &rc.low},
+        {"spr", &rc.spr}, {"init", &rc.init}, {"pairLow", &rc.pairLow}};
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--report" || a == "--reset-average") {
@@ -165,10 +174,11 @@ int main(int argc, char** argv) {
         else if (a == "--config") cfgPath = v;
         else if (a == "--iters") iters = std::atol(v);
         else if (a == "--chunk") chunk = std::atol(v);
-        else if (a == "--seed") seed = uint32_t(std::atol(v));
+        else if (a == "--seed") seed = uint32_t(std::atol(v)), seedGiven = true;
         else if (a == "--threads") threads = std::max(1, std::atoi(v));
         else if (a == "--boards") boards = std::atoi(v);
         else if (a == "--checkpoint") ckPath = v;
+        else if (a == "--warm") warmPath = v;
         else if (a == "--out") outPath = v;
         else if (a == "--show") shows.push_back(v);
         else if (a == "--r") {
@@ -177,7 +187,7 @@ int main(int argc, char** argv) {
             auto f = std::find_if(std::begin(rFields), std::end(rFields),
                                   [&](auto& x) { return kv.substr(0, eqPos) == x.first; });
             if (eqPos == std::string::npos || f == std::end(rFields))
-                return std::fprintf(stderr, "bad --r %s (keys: ip oop pair suited offsuit gap low spr init)\n", v), 2;
+                return std::fprintf(stderr, "bad --r %s (keys: ip oop flush conn set dom low spr init pairLow)\n", v), 2;
             *f->second = std::atof(v + eqPos + 1);
         }
         else return std::fprintf(stderr, "unknown option %s\n", a.c_str()), 2;
@@ -194,9 +204,15 @@ int main(int argc, char** argv) {
     Equity eq;
     if (!eq.loadHuTable(table)) std::printf("warning: no %s, heads-up equity will be sampled\n", table.c_str());
     Solver solver(cfg, sc, eq, seed);
-    if (!ckPath.empty() && solver.loadCheckpoint(ckPath))
+    if (!ckPath.empty() && std::ifstream(ckPath).good()) {  // an existing checkpoint must load
+        if (!solver.loadCheckpoint(ckPath))
+            return std::fprintf(stderr, "cannot resume %s (different game or config, or corrupt)\n", ckPath.c_str()), 1;
         std::printf("resumed %s at iteration %ld\n", ckPath.c_str(), solver.iterations());
+    }
+    if (!warmPath.empty() && !solver.loadCheckpoint(warmPath))
+        return std::fprintf(stderr, "cannot warm-start from %s\n", warmPath.c_str()), 1;
     if (resetAvg) solver.resetAverage();
+    if (seedGiven) solver.reseed(seed);  // an explicit --seed overrides the checkpoint's RNG state
 
     Strategy prev = solver.average();
     while (solver.iterations() < iters) {

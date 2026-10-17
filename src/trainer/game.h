@@ -28,6 +28,9 @@ struct Config {
     // 1 = a player who cold-called the open may call a squeeze (one 3-bet); 0 = fold or 4-bet only.
     // A double so config files and the bytewise config checks treat it like every other field.
     double squeezeCall = 1;
+    // Rake min(rake * pot, rakeCap), taken only when a flop is dealt or an all-in is called
+    // (no flop, no drop). rake = 0 turns it off. It doesn't change the betting tree.
+    double rake = 0.05, rakeCap = 4.0;
 };
 
 // Reads key=value lines (keys = Config field names, '#' starts a comment) over the defaults.
@@ -52,6 +55,7 @@ public:
     double stack(int pos) const;    // chips behind
     double pot() const;             // sum of committed()
     bool folded(int pos) const;
+    const Config& config() const { return cfg_; }
     int lastRaiser() const { return lastRaiser_; }  // seat that made the last raise, -1 if none
 
 private:

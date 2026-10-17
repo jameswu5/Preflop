@@ -72,12 +72,12 @@ int main() {
         assert(s.probs(s.nodeFor({F, F, F, F}), 0)[int(C)] == 0);  // SB can't complete
         assert(s.nodeFor({C}) == -1);                                // no limping
         RealizationConfig rc;
-        rc.oop = 0.7;
+        rc.oop += 0.1;  // not the default, so the load must really restore it
         Strategy s2(Config{}, rc);
         s2.probs(n, 0) = {0, 0, 1};
         assert(s2.save("solver_test.strat"));
         Strategy t;
-        assert(t.load("solver_test.strat") && t.probs(n, 0)[int(R)] == 1 && t.realization().oop == 0.7);
+        assert(t.load("solver_test.strat") && t.probs(n, 0)[int(R)] == 1 && t.realization().oop == rc.oop);
         std::ofstream("solver_test.strat", std::ios::binary) << "junk";
         assert(!t.load("solver_test.strat") && t.probs(n, 0)[int(R)] == 1);  // unchanged on failure
         std::remove("solver_test.strat");
@@ -93,6 +93,7 @@ int main() {
 
     Config pf10;  // heads-up 10bb push/fold: every open is all-in
     pf10.stack = pf10.open = pf10.sbOpen = 10;
+    pf10.rake = 0;  // the exact exploitability formula below is rake-free
     SolverConfig sc;
     sc.rootFolds = 4;
     {  // deterministic for a fixed seed
@@ -113,12 +114,16 @@ int main() {
         for (int n = 0; n < sa.tree().size(); ++n)
             for (int k = 0; k < NBUCKETS; ++k) assert(sa.probs(n, k) == sb.probs(n, k) && scs.probs(n, k) == sb.probs(n, k));
         SolverConfig warm = sc;
-        warm.realization.oop = 0.7;
+        warm.realization.oop += 0.1;
         Solver w(pf10, warm, eq, 5);
         assert(w.loadCheckpoint("solver_test.ck") && w.iterations() == 0);  // only R differs: warm start, fresh average
-        SolverConfig other = sc;
-        other.flopBoards = 50;
-        Solver d(pf10, other, eq, 5);
+        SolverConfig boards = sc;
+        boards.flopBoards = 50;
+        Solver k(pf10, boards, eq, 5);
+        assert(k.loadCheckpoint("solver_test.ck") && k.iterations() == 15000);  // board count is precision only
+        Config other = pf10;
+        other.stack = other.open = other.sbOpen = 12;
+        Solver d(other, sc, eq, 5);
         assert(!d.loadCheckpoint("solver_test.ck") && d.iterations() == 0);  // different game: refused
         std::ofstream("solver_test.ck", std::ios::binary) << "junk";
         assert(!c.loadCheckpoint("solver_test.ck") && c.iterations() == 30000);

@@ -20,7 +20,7 @@ $$I = \big(h,\ b(\omega_{P(h)})\big), \qquad |\mathcal I| = |H| \times 169.$$
 
 The class is fixed for the whole hand, so the abstraction keeps perfect recall. Strategies are stored per class, but the solver always deals real combos from one deck, so card removal (blockers) still shapes the sampled opponents. A behavioural strategy is $\sigma_p(I) \in \Delta(A(h))$ at each of player $p$'s information sets.
 
-**Payoffs.** At a terminal $z$ with deal $\omega$, player $i$ gets $u_i(z,\omega) = s_i \cdot \text{pot} - c_i$, where $c_i$ is what $i$ contributed and $s_i$ is $i$'s share of the pot (§3).
+**Payoffs.** At a terminal $z$ with deal $\omega$, player $i$ gets $u_i(z,\omega) = s_i \cdot (\text{pot} - \varrho) - c_i$, where $c_i$ is what $i$ contributed, $s_i$ is $i$'s share of the pot and $\varrho$ is the rake (§3).
 
 ## 2. Solving: external-sampling MCCFR
 
@@ -70,17 +70,27 @@ Both regrets and the average strategy therefore weight block $j$ linearly, which
 
 ### Caveats for six players
 
-- CFR's guarantee is that average regret goes to 0, so the average strategy becomes an $\varepsilon$-equilibrium. That conclusion holds only in **two-player zero-sum** games. Our game is six-player (though still zero-sum), so there is no convergence guarantee, and a limit point need not be a Nash equilibrium. In practice this family of methods produces strong strategies (Pluribus is an example). We check stability empirically instead (§5).
+- CFR's guarantee is that average regret goes to 0, so the average strategy becomes an $\varepsilon$-equilibrium. That conclusion holds only in **two-player zero-sum** games. Our game is six-player and, with rake, not even zero-sum among the players (§3), so there is no convergence guarantee, and a limit point need not be a Nash equilibrium. In practice this family of methods produces strong strategies (Pluribus is an example). We check stability empirically instead (§5).
 - Everything is relative to the model: an equilibrium of *our* abstraction and payoff model. Close agreement with reference charts is evidence, not proof of GTO.
-- Rake, when added, breaks zero-sum. Model it by taking rake at terminals where a flop is seen or an all-in is called.
+- Rake makes the game negative-sum for the players. One can view the house as a seventh, passive player who collects $\varrho$ and never acts, which restores zero-sum but adds nothing to the strategic picture. Exact checks that rely on zero-sum, such as the push/fold exploitability test in `solver_test`, run with rake off.
 
 ## 3. Terminal payoffs
 
 Let $L$ be the set of players still in the hand at a terminal. Then
 
-$$u_i = s_i \cdot \text{pot} - c_i, \qquad \sum_{i \in L} s_i = 1, \qquad s_i = 0 \text{ for } i \notin L.$$
+$$u_i = s_i \cdot (\text{pot} - \varrho) - c_i, \qquad \sum_{i \in L} s_i = 1, \qquad s_i = 0 \text{ for } i \notin L.$$
 
-Since $\sum_i c_i = \text{pot}$, it follows that $\sum_i u_i = \text{pot} - \text{pot} = 0$ for **every** terminal and every sampled board, not just in expectation. The game is exactly zero-sum, and this is tested directly.
+**Rake** (no flop, no drop). With rate $r$ and cap $\bar\varrho$ (Config `rake`, `rakeCap`),
+
+$$\varrho = \begin{cases} \min\!\big(r \cdot \text{pot},\ \bar\varrho\big) & |L| \ge 2 \text{ (a flop is dealt, or an all-in is called)}, \\ 0 & |L| = 1 \text{ (everyone else folded preflop).} \end{cases}$$
+
+The rake comes off the whole pot, dead money from folded players included, and the live players split what is left in the usual proportions $s_i$. Since $\sum_i c_i = \text{pot}$,
+
+$$\sum_i u_i = (\text{pot} - \varrho) - \text{pot} = -\varrho$$
+
+for **every** terminal and every sampled board, not just in expectation. With $r = 0$ the game is exactly zero-sum. Both identities are tested directly.
+
+Strategically, rake is a tax on seeing a flop, and it does not depend on who wins. Because the cap binds only in big pots, it costs most, relative to the pot, in small and medium pots. That makes marginal flats and loose blind defence worse, while folds, uncontested raises and preflop all-ins large enough to hit the cap are taxed little or not at all.
 
 | Terminal | Share $s_i$ |
 |---|---|
@@ -112,39 +122,47 @@ When a flop would be dealt, raw equity overstates what some hands actually win p
 
 ### 3.3 The realization model
 
-For player $i$ with ranks $h > \ell$ (or a pair, $h = \ell$), counting 2 as 0 up to A as 12, $R_i$ is built in four steps.
+$R_i$ is built from **features of the hand**, the player's **role** (in or out of position, caller or last raiser) and the **depth of the pot**. Fold equity and blockers are *not* modelled here: the solver deals real cards and samples opponents from the remaining deck, so both are already exact, and a blocker term would count them twice.
 
-**Hand class.**
+**Depth.** With $S = \text{stack behind} / \text{pot}$ at the flop (all live stacks are equal) and a parameter $\kappa \ge 0$, let
 
-$$r_0 = \begin{cases} \rho_{\text{pair}} & \text{pair} \\ \rho_{\text{suited}} - g\,\min(h-\ell-1,\,4) & \text{suited} \\ \rho_{\text{off}} - g\,\min(h-\ell-1,\,4) - \lambda\,(12-h) & \text{offsuit} \end{cases}$$
+$$\gamma = \frac{S}{S + \kappa} \in (0, 1] \qquad (\kappa = 0:\ \gamma = 1).$$
 
-The gap penalty $g$ charges each missing rank between the cards (KQ has none, KJ has one), capped at four. The low-card penalty $\lambda$ charges offsuit hands for each rank their top card sits below an ace. Pairs and suited hands are exempt, because they realize through sets and draws.
+$\gamma$ is near 1 in deep, single-raised pots and falls in 3-bet and 4-bet pots. At $S = \kappa$, $\gamma = \tfrac12$, so $\kappa$ reads as the "half-life" SPR. Terms scaled by $\gamma$ are those whose value comes from playing future streets, so they fade when little money is left behind.
 
-**Position and initiative.**
+**Position.**
 
-$$r_1 = r_0 \cdot \begin{cases} \alpha_{\text{ip}} & i \text{ acts last postflop among } L \\ \alpha_{\text{oop}} & \text{otherwise} \end{cases} \cdot \begin{cases} 1 + \iota & i \text{ made the last raise} \\ 1 & \text{otherwise} \end{cases}$$
+$$\mathrm{pos}_i = \begin{cases} \alpha_{\text{ip}} & i \text{ acts last postflop among } L, \\ 1 - (1 - \alpha_{\text{oop}})\,\gamma & \text{otherwise.} \end{cases}$$
 
-Postflop order is SB, BB, UTG, HJ, CO, BTN.
+Postflop order is SB, BB, UTG, HJ, CO, BTN. The out-of-position penalty $1 - \alpha_{\text{oop}}$ shrinks with depth: with little behind, there is little to be out-played on.
 
-**Pot size.** With $S = \text{stack behind} / \text{pot}$ at the flop, the stack-to-pot ratio (all live stacks are equal), and a parameter $\kappa \ge 0$:
+**Hand features.** For a hand with ranks $r_1 \ge r_2$ (2 = 0, …, A = 12):
 
-$$r_2 = 1 - (1 - r_1)\, \frac{S}{S + \kappa} \qquad (\kappa = 0:\ r_2 = r_1).$$
+- $\mathrm{st}(r_1,r_2)$: the number of 5-card straights, from A-2-3-4-5 (the ace plays low) up to T-J-Q-K-A, that contain both ranks. It is 0 for pairs. For example 98 has 4, KQ 2, AK and A5 1, and K4 0.
+- $\mathrm{dom}(r_1,r_2)$: for offsuit non-pairs with $r_1 \ge \text{T}$, $\min(r_1 - 1 - r_2,\ 4)$, and 0 otherwise. It measures how often the hand makes top pair with a weak kicker against better versions of itself. For example KQo has 0, KJo 1, AJo 2, and K6o is capped at 4.
+- Indicators $\mathbb 1_{\text{suited}}$, $\mathbb 1_{\text{pair}}$, $\mathbb 1_{\text{off}}$ (offsuit non-pair), and $\mathbb 1_{\text{raiser}}$ (player $i$ made the last raise).
 
-This shrinks the deviation $1 - r_1$ by the factor $S/(S+\kappa) \in (0,1]$:
+$$H_i = 1 + \phi\, \mathbb 1_{\text{suited}} + \eta\, \mathrm{st}(r_1,r_2)\,\gamma + \varsigma\, \mathbb 1_{\text{pair}}\,\gamma - \delta\, \mathrm{dom}(r_1,r_2)\,(1 - \mathbb 1_{\text{raiser}}) - \lambda\,(12 - r_1)\,\mathbb 1_{\text{off}} - \beta\,(12 - r_1)\,\mathbb 1_{\text{pair}}.$$
 
-- As $S \to \infty$ (deep, single-raised pots), $r_2 \to r_1$.
-- As $S \to 0$ (4-bet pots), $r_2 \to 1$: with little postflop play left, position and hand type matter little.
-- At $S = \kappa$, exactly half the deviation remains, so $\kappa$ reads as the "half-life" SPR.
+Reading the terms:
 
-This is what lets the model prefer offsuit broadways in 3-bet pots and suited ones in flatted pots. Without it, $R$ was the same in every pot, and the solver chose its 3-betting and flatting hands the wrong way round (3-betting KJs, flatting KJo).
+- $\phi$ (flush potential) lifts every suited hand, at any depth.
+- $\eta$ (straight potential) and $\varsigma$ (set mining) pay off only when there is money left to win, so both scale with $\gamma$.
+- $\delta$ (domination) applies only when **calling**. A dominated hand that calls ends up in pots with ranges that crush it, while as the aggressor it often takes the pot or is the one doing the dominating.
+- $\lambda$ (low cards) charges offsuit non-pairs for each rank their top card sits below an ace.
+- $\beta$ (low pairs) charges pairs for each rank below aces, at any depth: overcards come on most flops and small pairs realize badly against them in every pot. Their upside, flopping a set, is already in $\varsigma\,\gamma$. The term is there so small pairs prefer flatting (set mining) to 3-betting.
 
-**Floor.**
+**Combined, with a floor.**
 
-$$R_i = \max(r_2,\ 0.05),$$
+$$R_i = \max\!\big( \mathrm{pos}_i \cdot H_i \cdot (1 + \iota\, \mathbb 1_{\text{raiser}}),\ 0.05 \big),$$
 
-so no hand realizes nothing and the denominator stays positive.
+where $\iota$ rewards the last aggressor. The floor keeps every $R_i$ positive, so the share denominator never vanishes.
 
-The fitted parameters are $\theta = (\alpha_{\text{oop}}, \rho_{\text{pair}}, \rho_{\text{suited}}, \rho_{\text{off}}, g, \lambda, \kappa, \iota)$, with $\alpha_{\text{ip}} = 1$ fixing the scale. In code they are the `RealizationConfig` fields `oop, pair, suited, offsuit, gap, low, spr, init`, with `ip` = $\alpha_{\text{ip}}$.
+**Why this shape.** The intended outcome is *polarized* re-raising ranges. Hands that realize badly when calling, such as dominated offsuit broadways, prefer to raise or fold. Hands whose value is postflop playability, such as suited aces, suited connectors and small pairs, get that value in deep pots, which mostly means calling. Suited wheel aces like A5s keep their straight and flush terms even as the aggressor, which is what makes them natural bluffs. An earlier model, $R$ = position × hand class with a shrink of the whole factor toward 1 in shallow pots, barely depended on role, and in 3-bet pots it pulled everything toward raw equity. The solver then built linear re-raising ranges: small pairs looked like good 3-bets, and A5s and 76s lost their edge.
+
+**Neutral setting.** With $\phi = \eta = \varsigma = \delta = \lambda = \beta = \iota = 0$ and $\kappa = 0$, $H_i = 1$ and $R_i = \alpha_{\text{ip}}$ or $\alpha_{\text{oop}}$: a position-only model.
+
+The fitted parameters are $\theta = (\alpha_{\text{oop}}, \phi, \eta, \varsigma, \delta, \lambda, \kappa, \iota, \beta)$, with $\alpha_{\text{ip}} = 1$ fixing the scale. In code they are the `RealizationConfig` fields `oop, flush, conn, set, dom, low, spr, init, pairLow`, with `ip` = $\alpha_{\text{ip}}$. The functions `straights()` and `domination()` in `utility.h` compute the features.
 
 ## 4. Fitting the realization parameters
 
@@ -186,12 +204,12 @@ This is a reach- and range-weighted total-variation distance: frequent spots and
 
 $$\widehat{\mathrm{EV}}(a) = \frac{\sum_{n} \omega_n\, u^{(n)}(a)}{\sum_n \omega_n}, \qquad \omega_n = \prod_{k\,:\,P(h_k) \ne \text{user}} \bar\sigma\big(h_k,\ b(\omega^{(n)}_{P(h_k)})\big)(a_k).$$
 
-This is self-normalized importance sampling: consistent as $N$ grows, with $O(1/N)$ bias. Every legal action is played out on the same deals (common random numbers), so differences between actions have lower variance than their levels. Checking that $\max_a \widehat{\mathrm{EV}}(a) - \sum_a \bar\sigma(a)\,\widehat{\mathrm{EV}}(a) \approx 0$ across many dealt spots is a direct test that the solve is at an equilibrium of the model. The heads-up game (`--seats 2`) is the clean case for this test, since CFR is guaranteed to converge there.
+This is self-normalized importance sampling: consistent as $N$ grows, with $O(1/N)$ bias. Every legal action is played out on the same deals (common random numbers), so differences between actions have lower variance than their levels. Checking that $\max_a \widehat{\mathrm{EV}}(a) - \sum_a \bar\sigma(a)\,\widehat{\mathrm{EV}}(a) \approx 0$ across many dealt spots is a direct test that the solve is at an equilibrium of the model. The heads-up game (`--seats 2`) with rake off is the clean case for this test, since it is two-player zero-sum and CFR is guaranteed to converge there. With rake, heads-up is general-sum and the guarantee no longer applies, although the test still makes sense.
 
 ## 6. The pipeline that produces the shipped strategy
 
 1. **Equity table.** `gen_equity` writes the exact heads-up table (§3.1). It never changes.
-2. **Validate the solver on a small game.** Solve SB vs BB, where CFR has its guarantee, and run the indifference check (§5).
+2. **Validate the solver on a small game.** Solve SB vs BB with rake off (a config with `rake = 0`), where CFR has its guarantee, and run the indifference check (§5).
 3. **Fit $\theta$.** Run `tune.py` against the reference charts in `ref/` (§4).
 4. **Re-solve.** Copy the fitted values into the `RealizationConfig` defaults and run a long 6-max solve from scratch at the full board count $K$ (the command is in the README). The strategy file records the $\theta$ it was solved with, so the trainer's rollouts use the same payoff model.
 5. **Check.** Watch the strategy change (§5), run `solve --report` for the sanity metrics, and run `validate` for the per-spot distances to the references ([validation.md](validation.md#tools)).

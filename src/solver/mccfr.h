@@ -34,12 +34,14 @@ public:
 
     // Full solver state (tables, iteration, RNG), so resuming continues exactly where it stopped.
     // load fails (state unchanged) if the file is malformed or was made with a different Config /
-    // SolverConfig. A different RealizationConfig is allowed for warm-starting a tuning run: the
+    // SolverConfig (flopBoards may differ: it is estimation precision, not the game). A different
+    // RealizationConfig is allowed for warm-starting a tuning run: the
     // regrets are kept, but the strategy sums and iteration count restart, so the average reflects
     // only the new R.
     bool saveCheckpoint(const std::string& path) const;
     // Forget the strategy sums and restart the iteration count; regrets are kept (warm start).
     void resetAverage();
+    void reseed(uint32_t seed) { rng_.seed(seed); }  // e.g. independent runs from one checkpoint
     bool loadCheckpoint(const std::string& path);
 
 private:

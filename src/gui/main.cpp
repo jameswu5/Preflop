@@ -5,6 +5,7 @@
 #include "solver/cards.h"
 #include "solver/range.h"
 #include "solver/strategy.h"
+#include "solver/utility.h"
 #include "trainer/game.h"
 #include "trainer/trainer.h"
 
@@ -249,7 +250,7 @@ void rangePanel(const pf::Strategy& st, const Decision& d, const std::array<doub
     actRows(width, x, y + 48);
     if (d.sp) feedback(d, x, y + 136);
 
-    DrawTextEx(font, "<- -> other decisions this hand", {GX, PANEL.y + PANEL.height - 30}, 14, 0, GREY);
+    DrawTextEx(font, "<- -> other decisions this hand   I: realization for this spot", {GX, PANEL.y + PANEL.height - 30}, 14, 0, GREY);
     button(CLOSE_BTN, nextHand ? "Next hand  (Space)" : "Close  (Esc)");  // click handled in update
 }
 
@@ -385,6 +386,7 @@ struct Painter {
     bool stroke = false, dirty = false;
     std::string path, comments, status;  // path "" = not saving (unreadable file in the way)
     std::vector<std::string> files;
+    bool inspect = false;             // asks main to open the R inspector for this spot
 
     static constexpr float PX = 24, PY = 136, PC = 44;  // grid origin and cell size
 
@@ -599,11 +601,158 @@ struct Painter {
             if (button(r, name(files[i]), files[i] == path, 14)) load(files[i]);
         }
 
-        DrawTextEx(font, "Left-drag: paint   Right-drag: erase   Autosaves after each stroke   Fold = the rest",
+        if (IsKeyPressed(KEY_I)) inspect = true;
+        DrawTextEx(font, "Left-drag: paint   Right-drag: erase   Autosaves after each stroke   Fold = the rest   I: realization",
                    {PX, H - 30}, 14, 0, {110, 114, 122, 255});
         bool back = button({W - 200, H - 52, 176, 36}, "Back to table (Esc)", false, 15) || IsKeyPressed(KEY_ESCAPE);
         if (to && !stroke) go(*to);
         return !back;
+    }
+};
+
+// ---- R inspector: how the realization model values each hand class at a flop ----
+
+// Representative cards for a grid cell: one suit for suited, two suits for offsuit and pairs.
+std::array<pf::Card, 2> cellCards(int b) {
+    int row = b / 13, col = b % 13;
+    uint8_t hi = 12 - std::min(row, col), lo = 12 - std::max(row, col);
+    return {pf::Card{hi, 3}, pf::Card{lo, uint8_t(row < col ? 3 : 2)}};
+}
+
+// Diverging scale: neutral grey at `mid`, blue above, orange below, full colour at mid +- span.
+Color diverge(double v, double mid, double span) {
+    float t = std::clamp(float((v - mid) / span), -1.f, 1.f);
+    Color n = {64, 68, 78, 255}, c = t > 0 ? Color{48, 118, 206, 255} : Color{214, 120, 40, 255};
+    t = std::abs(t);
+    return {uint8_t(n.r + (c.r - n.r) * t), uint8_t(n.g + (c.g - n.g) * t), uint8_t(n.b + (c.b - n.b) * t), 255};
+}
+
+struct Inspector {
+    const pf::Strategy& st;
+    bool ip = true, raiser = false, diff = false;  // diff: show aggressor R minus caller R
+    double spr = 18;
+    bool sliding = false;
+    struct Preset {
+        std::string name;
+        double spr;
+        int ip = -1, raiser = -1;  // -1 = leave as is
+    };
+    std::vector<Preset> presets = {{"Single-raised pot  18", 18}, {"3-bet pot  5", 5}, {"4-bet pot  1.3", 1.3}};
+    std::string from;  // spot it was opened from, "" if none
+
+    static constexpr float IX = 24, IY = 150, IC = 44;
+    static constexpr double LO = .5, HI = 30;  // slider range, log scale
+
+    // Adds the actor's two outcomes at a spot as presets: calling, and raising and getting called.
+    // ponytail: assumes heads-up against the last raiser (or the BB when unopened); multiway pots are
+    // smaller per player, so treat these SPRs as upper bounds.
+    void fromSpot(const std::vector<pf::Act>& hist) {
+        pf::Hand h = handAt(st, hist);
+        int me = h.toAct(), opp = h.lastRaiser() >= 0 ? h.lastRaiser() : me == pf::BB ? pf::SB : pf::BB;
+        auto order = [](int p) { return p >= pf::SB ? p - pf::SB : p + 2; };  // postflop: SB first, BTN last
+        bool meIP = order(me) > order(opp);
+        double stack = st.config().stack;
+        from = std::string(POS_NAME[me]) + " to act, heads-up vs " + POS_NAME[opp];
+        auto legal = h.legal();
+        auto has = [&](pf::Act a) { return std::find(legal.begin(), legal.end(), a) != legal.end(); };
+        if (has(pf::Act::Call)) {
+            double to = std::min(h.currentBet(), h.committed(me) + h.stack(me));
+            double pot = h.pot() + to - h.committed(me);
+            if (to < stack) presets.push_back({"If " + std::string(POS_NAME[me]) + " calls  " + fmt(std::round((stack - to) / pot * 10) / 10), (stack - to) / pot, meIP, 0});
+        }
+        if (has(pf::Act::Raise)) {
+            double to = h.raiseTo(), pot = h.pot() + (to - h.committed(me)) + (to - h.committed(opp));
+            if (to < stack) presets.push_back({"If the raise is called  " + fmt(std::round((stack - to) / pot * 10) / 10), (stack - to) / pot, meIP, 1});
+        }
+        auto& p = presets.back();
+        if (presets.size() > 3) spr = p.spr, ip = p.ip, raiser = p.raiser;
+    }
+
+    double r(int b, bool agg) const {
+        auto c = cellCards(b);
+        return pf::realization(st.realization(), ip, agg, spr, c[0], c[1]);
+    }
+
+    // One frame: input + drawing. Returns false to close.
+    bool frame() {
+        Vector2 m = GetMousePosition();
+        DrawRectangleGradientV(0, 0, W, H, {28, 31, 37, 255}, {12, 13, 16, 255});
+        DrawTextEx(bold, "Realization inspector", {IX, 18}, 26, 0, WHITE);
+        DrawTextEx(font, "At a flop each player's pot share is R x equity, normalized. R < 1: the hand realizes less than its equity.",
+                   {IX, 54}, 16, 0, GREY);
+        if (!from.empty()) DrawTextEx(font, ("Opened from: " + from).c_str(), {IX, 76}, 16, 0, {200, 204, 210, 255});
+
+        // controls
+        float y = 104;
+        if (button({IX, y, 70, 32}, "IP", ip, 15)) ip = true;
+        if (button({IX + 76, y, 70, 32}, "OOP", !ip, 15)) ip = false;
+        if (button({IX + 170, y, 100, 32}, "Caller", !raiser && !diff, 15)) raiser = diff = false;
+        if (button({IX + 276, y, 110, 32}, "Aggressor", raiser && !diff, 15)) raiser = true, diff = false;
+        if (button({IX + 392, y, 180, 32}, "Aggressor - caller", diff, 15)) diff = true;
+
+        // grid
+        int hover = -1;
+        for (int b = 0; b < pf::NBUCKETS; b++) {
+            Rectangle c = {IX + b % 13 * IC, IY + b / 13 * IC, IC - 2, IC - 2};
+            if (CheckCollisionPointRec(m, c)) hover = b;
+            double v = diff ? r(b, true) - r(b, false) : r(b, raiser);
+            DrawRectangleRec(c, diff ? diverge(v, 0, .3) : diverge(v, 1, .5));
+            char val[16];
+            std::snprintf(val, sizeof val, diff ? "%+.2f" : "%.2f", v);
+            text(bold, pf::bucketName(b), {c.x + c.width / 2, c.y + 14}, 13, WHITE);
+            text(font, val, {c.x + c.width / 2, c.y + 30}, 12, {230, 232, 236, 255});
+        }
+        if (hover >= 0) DrawRectangleLinesEx({IX + hover % 13 * IC - 2, IY + hover / 13 * IC - 2, IC + 2, IC + 2}, 3, WHITE);
+
+        // right column: SPR, presets, legend, hovered hand
+        float cx = IX + 13 * IC + 32;
+        y = IY;
+        char buf[96];
+        std::snprintf(buf, sizeof buf, "SPR  %.1f", spr);
+        DrawTextEx(bold, buf, {cx, y}, 20, 0, WHITE);
+        Rectangle track = {cx, y + 34, 360, 6};
+        float t = float(std::log(spr / LO) / std::log(HI / LO));
+        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && CheckCollisionPointRec(m, {track.x - 8, track.y - 12, track.width + 16, 30})) sliding = true;
+        if (!IsMouseButtonDown(MOUSE_BUTTON_LEFT)) sliding = false;
+        if (sliding) t = std::clamp((m.x - track.x) / track.width, 0.f, 1.f), spr = LO * std::pow(HI / LO, t);
+        DrawRectangleRounded(track, 1, 4, {52, 56, 64, 255});
+        DrawCircleV({track.x + track.width * t, track.y + 3}, 9, {214, 158, 46, 255});
+        DrawTextEx(font, "0.5", {track.x, track.y + 14}, 13, 0, GREY);
+        DrawTextEx(font, "30", {track.x + track.width - 14, track.y + 14}, 13, 0, GREY);
+        y += 70;
+        for (auto& p : presets) {
+            bool on = std::abs(spr - p.spr) < 1e-9 && (p.ip < 0 || p.ip == ip) && (p.raiser < 0 || p.raiser == raiser);
+            if (button({cx, y, 260, 30}, p.name, on, 14)) {
+                spr = p.spr;
+                if (p.ip >= 0) ip = p.ip;
+                if (p.raiser >= 0) raiser = p.raiser, diff = false;
+            }
+            y += 36;
+        }
+        y += 10;
+        for (int i = 0; i < 180; i++)
+            DrawRectangleRec({cx + i * 2.f, y, 2, 12}, diff ? diverge(-.3 + .6 * i / 179, 0, .3) : diverge(.5 + i / 179.0, 1, .5));
+        DrawTextEx(font, diff ? "-0.3" : "0.5", {cx, y + 16}, 13, 0, GREY);
+        DrawTextEx(font, diff ? "0" : "1.0", {cx + 172, y + 16}, 13, 0, GREY);
+        DrawTextEx(font, diff ? "+0.3" : "1.5", {cx + 336, y + 16}, 13, 0, GREY);
+        y += 48;
+        if (hover >= 0) {
+            DrawTextEx(bold, pf::bucketName(hover).c_str(), {cx, y}, 26, 0, WHITE);
+            double rc = r(hover, false), ra = r(hover, true);
+            std::snprintf(buf, sizeof buf, "caller %.3f   aggressor %.3f   (%+.3f)", rc, ra, ra - rc);
+            DrawTextEx(font, buf, {cx, y + 34}, 17, 0, {200, 204, 210, 255});
+            auto c = cellCards(hover);  // the model's inputs for this hand
+            double sp = st.realization().spr, g = sp > 0 ? spr / (spr + sp) : 1;
+            std::snprintf(buf, sizeof buf, "straights %d   domination %d   %s   depth g %.2f", pf::straights(c[0], c[1]),
+                          pf::domination(c[0], c[1]), c[0].rank == c[1].rank ? "pair" : c[0].suit == c[1].suit ? "suited" : "offsuit", g);
+            DrawTextEx(font, buf, {cx, y + 58}, 16, 0, GREY);
+        } else {
+            DrawTextEx(font, "Hover a hand for exact values", {cx, y + 8}, 16, 0, GREY);
+        }
+
+        DrawTextEx(font, "Uses the loaded strategy's realization model. Representative cards: suited = one suit, others = two suits.",
+                   {IX, H - 30}, 14, 0, {110, 114, 122, 255});
+        return !(button({W - 200, H - 52, 176, 36}, "Back (Esc)", false, 15) || IsKeyPressed(KEY_ESCAPE));
     }
 };
 
@@ -735,11 +884,20 @@ int main(int argc, char** argv) {
 
     newHand();
     std::optional<Painter> painter;  // reference painter screen; the table is paused while it's open
+    std::optional<Inspector> inspector;  // R inspector screen
 
     while (!WindowShouldClose()) {
-        if (painter) {
+        if (inspector || painter) {  // full-screen tools; the table is paused underneath
             BeginDrawing();
-            if (!painter->frame()) painter.reset();
+            if (inspector) {
+                if (!inspector->frame()) inspector.reset();
+            } else if (!painter->frame()) {
+                painter.reset();
+            } else if (painter->inspect) {
+                painter->inspect = false;
+                inspector.emplace(strat);
+                inspector->fromSpot(painter->hist);
+            }
             EndDrawing();
             continue;
         }
@@ -757,6 +915,12 @@ int main(int argc, char** argv) {
         } else if (view >= 0) {  // range panel open: game paused
             if (IsKeyPressed(KEY_LEFT) && view > 0) view--;
             if (IsKeyPressed(KEY_RIGHT) && view + 1 < int(log.size())) view++;
+            if (IsKeyPressed(KEY_I)) {
+                std::vector<pf::Act> hist;
+                for (int i = 0; i < view; i++) hist.push_back(log[i].act);
+                inspector.emplace(strat);
+                inspector->fromSpot(hist);
+            }
             if (close || (click && (CheckCollisionPointRec(mouse, CLOSE_BTN) || !CheckCollisionPointRec(mouse, PANEL)))) {
                 view = -1;
                 if (hand->done()) newHand();
@@ -766,6 +930,8 @@ int main(int argc, char** argv) {
             menu = 1;
         } else if (IsKeyPressed(KEY_S)) {
             menu = 2;
+        } else if (IsKeyPressed(KEY_I)) {
+            inspector.emplace(strat);
         } else if (IsKeyPressed(KEY_E)) {
             painter.emplace(strat, std::string(GetApplicationDirectory()) + "../ref");
         } else if (int s = click ? seatAt(mouse) : -1; s >= 0 && lastBy(posOf(s, btn)) >= 0) {
@@ -905,9 +1071,10 @@ int main(int argc, char** argv) {
             if (button({134, 16, 110, 34}, "Stats (S)", false, 15)) menu = 2;
             if (button({252, 16, 130, 34}, "Painter (E)", false, 15))
                 painter.emplace(strat, std::string(GetApplicationDirectory()) + "../ref");
+            if (button({390, 16, 100, 34}, "R (I)", false, 15)) inspector.emplace(strat);
         }
         std::string drill = "Drill: " + std::string(pf::spotName(filter.type)) + ", " + POS_PICK[filter.pos + 1];
-        DrawTextEx(font, (drill + (notice.empty() ? "" : "   (" + notice + ")")).c_str(), {394, 25}, 15, 0, GREY);
+        DrawTextEx(font, (drill + (notice.empty() ? "" : "   (" + notice + ")")).c_str(), {502, 25}, 15, 0, GREY);
         DrawTextEx(font, "Click a player to see their range  |  H: your range", {16, H - 26}, 14, 0, {110, 114, 122, 255});
 
         if (view >= 0) {

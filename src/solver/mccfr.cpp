@@ -128,7 +128,7 @@ Strategy Solver::average() const {
 
 // File: "PFCK" u32 version, Config, SolverConfig (raw; they hold only doubles/ints, no padding),
 // i64 iteration, u32 rng-state length + mt19937 text state, then regret and strategy sums.
-static constexpr uint32_t CK_VERSION = 2;  // 2: Config.squeezeCall, RealizationConfig.spr/init
+static constexpr uint32_t CK_VERSION = 5;  // 5: Config.rake/rakeCap
 static_assert(sizeof(Config) % sizeof(double) == 0 && sizeof(RealizationConfig) % sizeof(double) == 0 &&
                   sizeof(SolverConfig) == 2 * sizeof(int) + sizeof(long) + sizeof(RealizationConfig),
               "configs are compared bytewise; keep them free of padding");
@@ -170,6 +170,7 @@ bool Solver::loadCheckpoint(const std::string& path) {
         return false;
     bool newR = std::memcmp(&sc.realization, &sc_.realization, sizeof sc.realization) != 0;
     sc.realization = sc_.realization;  // R may differ: warm start
+    sc.flopBoards = sc_.flopBoards;    // estimation precision, not part of the game
     if (std::memcmp(&cfg, &cfg_, sizeof cfg) || std::memcmp(&sc, &sc_, sizeof sc)) return false;
     std::string r(rlen, '\0');
     std::mt19937 rng;

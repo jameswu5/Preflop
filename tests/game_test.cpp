@@ -184,10 +184,11 @@ int main() {
     {  // config file
         const char* path = "game_test.cfg";
         FILE* f = std::fopen(path, "w");
-        std::fputs("# reference setup\nopen = 2.2  # min-ish\nthreeBetOOP=5\ntick = 0.05\n\n", f);
+        std::fputs("# reference setup\nopen = 2.2  # min-ish\nthreeBetOOP=5\ntick = 0.05\nrake = 0.045\nrakeCap = 3\n\n", f);
         std::fclose(f);
         Config c = loadConfig(path);
         assert(near(c.open, 2.2) && near(c.threeBetOOP, 5) && near(c.tick, 0.05) && near(c.stack, 100));
+        assert(near(c.rake, 0.045) && near(c.rakeCap, 3));
         f = std::fopen(path, "w");
         std::fputs("opne = 2\n", f);
         std::fclose(f);

@@ -12,7 +12,7 @@ Put all of these in one config struct, loadable from a config file. Do not hardc
 | 5-bet | all-in. There is no 6-bet. Facing all-in is call/fold only |
 | Limping | None, including SB complete. Add later as a flag |
 | Cold calling | Allowed only while the pot holds a single open: players may call the open, and later players may overcall the open plus earlier callers. Once a 3-bet or larger is on the table, players who have not yet raised may only fold or raise, except that a player who called the open may also call a squeeze (one 3-bet) when `squeezeCall = 1` (the default). The original raiser facing a 3-bet may fold/call/raise |
-| Rake | Off in v1. Add later as a flag |
+| Rake | 5% of the pot, capped at 4bb (`rake`, `rakeCap`), to match the raked online games the reference ranges come from. Taken only when a flop is dealt or an all-in is called: no flop, no drop. `rake = 0` turns it off. It doesn't change the betting tree |
 | Tick | Every raise total rounds to the nearest 0.1bb (1 cent at 10NL), halves away from zero, capped at the stack |
 
 Actions per node are a subset of `{FOLD, CALL, RAISE}`, with the raise amount determined by the config and the current raise level. Because all stacks are equal, an all-in is always a plain showdown with no side pots.

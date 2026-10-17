@@ -39,7 +39,9 @@ Fold is the remainder. Range notation (`src/solver/range.h`): `AA`, `AKs`, `AKo`
 - Flat R made the blinds call almost everything (BB folded 1% vs an SB open). Hand-class R fixed it.
 - The low-card penalty applies to offsuit hands only: small pairs and suited connectors realize well through sets and draws.
 - Fit against pokerskill.com RFI charts (UTG/HJ/CO/BTN opens): score 0.0657 -> 0.0544, mainly suited 1.0 -> 1.075, offsuit 0.85 -> 0.8, gap 0.05 -> 0.06. Its SB chart is set aside (`ref/rfi_5_sb.txt.off`): it is identical to its BTN "always raise" range, so probably not a real SB solution.
-- Our tree 3-bets more and flats less than reference charts when cold-calling an open (e.g. BTN vs CO). The likely cause is the rule that a cold caller facing a squeeze may only fold or 4-bet (game-rules.md), which makes flatting expensive. That is a rules question, not an R one.
+- Our tree 3-bet more and flatted less than reference charts when cold-calling an open (BTN vs CO: 14% / 6% vs 6% / 14%). Two causes: the rule that a cold caller facing a squeeze could only fold or 4-bet (now `squeezeCall`, default on), and R being the same in every pot, which made suited hands prefer big pots (we 3-bet KJs and flatted KJo, the reverse of real solvers).
+- Pot-dependent R (`spr`, `init` in RealizationConfig) shrinks the hand-class/position deviation toward 1 as SPR falls (3-bet and 4-bet pots) and optionally rewards the last aggressor. First sweep (60M iterations each, squeeze calls on): the squeeze rule alone moved BTN vs CO to 13% / 7%; spr = 2 gave 9.5% / 8.5% and the best score; spr = 4 turned AJ and KQ the right way round (AJo 3-bets, AJs flats) but individual hands are noisy near indifference. Every `init` > 0 scored worse against the current references, which have only one flat-vs-3-bet spot; more such charts are needed before trusting either term.
+- Fit with squeeze calls on, over all eight parameters (ref/: UTG/HJ/CO/BTN opens + BTN vs CO): score 0.0751 -> 0.0612 with oop 0.8 -> 0.85, gap 0.06 -> 0.08, spr 2, init 0 (now the defaults).
 
 ## Reference data
 

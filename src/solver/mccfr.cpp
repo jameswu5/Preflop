@@ -128,7 +128,7 @@ Strategy Solver::average() const {
 
 // File: "PFCK" u32 version, Config, SolverConfig (raw; they hold only doubles/ints, no padding),
 // i64 iteration, u32 rng-state length + mt19937 text state, then regret and strategy sums.
-static constexpr uint32_t CK_VERSION = 1;
+static constexpr uint32_t CK_VERSION = 2;  // 2: Config.squeezeCall, RealizationConfig.spr/init
 static_assert(sizeof(Config) % sizeof(double) == 0 && sizeof(RealizationConfig) % sizeof(double) == 0 &&
                   sizeof(SolverConfig) == 2 * sizeof(int) + sizeof(long) + sizeof(RealizationConfig),
               "configs are compared bytewise; keep them free of padding");

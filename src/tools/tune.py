@@ -20,8 +20,8 @@ import tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 BUILD = os.path.join(ROOT, "build")
 # Start point = current defaults in utility.h; step = initial search step per parameter.
-START = {"oop": 0.8, "pair": 1.0, "suited": 1.075, "offsuit": 0.8, "gap": 0.06, "low": 0.03}
-STEP = {"oop": 0.05, "pair": 0.05, "suited": 0.05, "offsuit": 0.05, "gap": 0.02, "low": 0.01}
+START = {"oop": 0.85, "pair": 1.0, "suited": 1.075, "offsuit": 0.8, "gap": 0.08, "low": 0.03, "spr": 2.0, "init": 0.0}
+STEP = {"oop": 0.05, "pair": 0.05, "suited": 0.05, "offsuit": 0.05, "gap": 0.02, "low": 0.01, "spr": 1.0, "init": 0.05}
 
 
 def evaluate(r, args, tmp):

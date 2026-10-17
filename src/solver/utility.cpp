@@ -11,12 +11,14 @@ static std::array<bool, NPOS> liveSeats(const Hand& h) {
     return live;
 }
 
-double realization(const RealizationConfig& rc, bool lastToAct, Card a, Card b) {
+double realization(const RealizationConfig& rc, bool lastToAct, bool raiser, double spr, Card a, Card b) {
     int hi = std::max(a.rank, b.rank), lo = std::min(a.rank, b.rank);
     double r = hi == lo ? rc.pair : a.suit == b.suit ? rc.suited : rc.offsuit;
     if (hi != lo) r -= rc.gap * std::min(hi - lo - 1, 4);
     if (hi != lo && a.suit != b.suit) r -= rc.low * (12 - hi);  // pairs/suited realize via sets/draws
-    return (lastToAct ? rc.ip : rc.oop) * std::max(r, 0.05);
+    r *= (lastToAct ? rc.ip : rc.oop) * (raiser ? 1 + rc.init : 1);
+    if (rc.spr > 0) r = 1 - (1 - r) * spr / (spr + rc.spr);
+    return std::max(r, 0.05);
 }
 
 bool allIn(const Hand& h) {
@@ -38,9 +40,11 @@ std::array<double, NPOS> payoffs(const Hand& h, const std::array<double, NPOS>& 
         share[last] = 1;
     } else {
         bool ai = allIn(h);
-        double sum = 0;
+        double spr = h.stack(last) / h.pot(), sum = 0;  // live stacks are equal at a flop
         for (int p = 0; p < NPOS; ++p)
-            if (live[p]) sum += share[p] = eq[p] * (ai ? 1 : realization(rc, p == last, h.cards[p][0], h.cards[p][1]));
+            if (live[p])
+                sum += share[p] = eq[p] * (ai ? 1 : realization(rc, p == last, p == h.lastRaiser(), spr,
+                                                                h.cards[p][0], h.cards[p][1]));
         assert(sum > 0);
         for (double& s : share) s /= sum;
     }

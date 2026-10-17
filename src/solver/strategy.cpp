@@ -72,7 +72,7 @@ std::array<float, 3>& Strategy::probs(int node, int bucket) { return p_[size_t(n
 // File: "PFST" u32 version, Config (raw), RealizationConfig (raw), i32 nodes,
 // then probs float[nodes][169][3].
 // The tree itself is rebuilt from the Config and checked against the node count.
-static constexpr uint32_t VERSION = 2;
+static constexpr uint32_t VERSION = 3;  // 3: Config.squeezeCall, RealizationConfig.spr/init
 
 bool Strategy::save(const std::string& path) const {
     std::string tmp = path + ".tmp";

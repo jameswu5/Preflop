@@ -91,8 +91,11 @@ int main() {
         act(h, BTN, {F, C}, C);
         assert(h.done() && near(h.pot(), 200.5));
     }
-    {  // ex 3: BTN squeezes HJ open + CO call (IP) = 11.25 -> 11.3; cold caller may only fold or 4-bet
-        Hand h(rng);
+    for (double sq : {1.0, 0.0}) {  // ex 3: BTN squeezes HJ open + CO call (IP) = 11.25 -> 11.3
+        Config cfg;                  // squeezeCall: the cold caller may call the squeeze, or only fold/4-bet
+        cfg.squeezeCall = sq;
+        A coldVsSqueeze = sq ? A{F, C, R} : A{F, R};
+        Hand h(rng, cfg);
         foldTo(h, HJ);
         act(h, HJ, {F, R}, R);
         act(h, CO, {F, C, R}, C);
@@ -102,9 +105,37 @@ int main() {
         act(h, BB, {F, R}, F);
         act(h, HJ, {F, C, R}, F);
         assert(h.raiseTo() == 31.1);  // CO is OOP to BTN: 2.75 * 11.3 = 31.075
-        act(h, CO, {F, R}, R);
+        act(h, CO, coldVsSqueeze, R);
         act(h, BTN, {F, C, R}, C);
         assert(h.done());
+    }
+    {  // squeeze call allowed (default): callers flat the squeeze, but face a 4-bet with fold/raise only
+        Hand h(rng);
+        foldTo(h, CO);
+        act(h, CO, {F, R}, R);
+        act(h, BTN, {F, C, R}, C);
+        act(h, SB, {F, C, R}, F);
+        act(h, BB, {F, C, R}, R);  // squeeze
+        act(h, CO, {F, C, R}, F);
+        act(h, BTN, {F, C, R}, C);  // flats the squeeze
+        assert(h.done() && h.pot() == 2 * 13.8 + 2.5 + 0.5);
+        Hand g(rng);
+        foldTo(g, CO);
+        act(g, CO, {F, R}, R);
+        act(g, BTN, {F, C, R}, C);
+        act(g, SB, {F, C, R}, F);
+        act(g, BB, {F, C, R}, R);
+        act(g, CO, {F, C, R}, R);   // 4-bet
+        act(g, BTN, {F, R}, F);     // the caller faces a 4-bet: no flat
+        act(g, BB, {F, C, R}, F);
+        assert(g.done());
+    }
+    {  // a player who hasn't acted still can't cold-call a 3-bet
+        Hand h(rng);
+        foldTo(h, CO);
+        act(h, CO, {F, R}, R);
+        act(h, BTN, {F, C, R}, R);
+        act(h, SB, {F, R}, F);
     }
     {  // ex 4: BB squeezes CO open + BTN call + SB overcall (OOP) = 16.25 -> 16.3
         Hand h(rng);
@@ -115,9 +146,9 @@ int main() {
         assert(h.raiseTo() == 16.3);
         act(h, BB, {F, C, R}, R);
         act(h, CO, {F, C, R}, F);
-        act(h, BTN, {F, R}, F);
+        act(h, BTN, {F, C, R}, F);  // callers may flat the squeeze (squeezeCall default on)
         assert(!h.done());
-        act(h, SB, {F, R}, F);
+        act(h, SB, {F, C, R}, F);
         assert(h.done() && h.pot() == 23.8);
     }
     {  // ex 5: BB 3-bets SB open (3bb, IP) = 10.5; SB 4-bets OOP 2.75x

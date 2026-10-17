@@ -17,6 +17,7 @@ Config loadConfig(const std::string& path) {
         {"open", &c.open}, {"sbOpen", &c.sbOpen},
         {"threeBetIP", &c.threeBetIP}, {"threeBetOOP", &c.threeBetOOP},
         {"fourBetIP", &c.fourBetIP}, {"fourBetOOP", &c.fourBetOOP}, {"tick", &c.tick},
+        {"squeezeCall", &c.squeezeCall},
     };
     std::ifstream in(path);
     if (!in) throw std::runtime_error("cannot open config " + path);
@@ -79,6 +80,7 @@ std::vector<Act> Hand::legal() const {
     if (raises_ == 0) return {Act::Fold, Act::Raise};  // no limping
     // Cold calling only vs a single open; after a 3-bet only previous raisers may call.
     if (raises_ == 1 || raised_[toAct_]) return {Act::Fold, Act::Call, Act::Raise};
+    if (raises_ == 2 && called_[toAct_] && cfg_.squeezeCall != 0) return {Act::Fold, Act::Call, Act::Raise};
     return {Act::Fold, Act::Raise};
 }
 
@@ -103,7 +105,7 @@ void Hand::apply(Act a) {
     if (a == Act::Fold) {
         folded_[p] = true;
     } else if (a == Act::Call) {
-        if (raises_ == 1) ++openCallers_;
+        if (raises_ == 1) ++openCallers_, called_[p] = true;
         committed_[p] = currentBet();
     } else {
         double to = raiseTo();

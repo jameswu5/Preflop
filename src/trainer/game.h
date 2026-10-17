@@ -25,6 +25,9 @@ struct Config {
     double threeBetIP = 3.5, threeBetOOP = 4.5;
     double fourBetIP = 2.3, fourBetOOP = 2.75;
     double tick = 0.1;  // raise sizes round to this (0.1bb = 1 cent at 10NL); <= 0 disables
+    // 1 = a player who cold-called the open may call a squeeze (one 3-bet); 0 = fold or 4-bet only.
+    // A double so config files and the bytewise config checks treat it like every other field.
+    double squeezeCall = 1;
 };
 
 // Reads key=value lines (keys = Config field names, '#' starts a comment) over the defaults.
@@ -49,6 +52,7 @@ public:
     double stack(int pos) const;    // chips behind
     double pot() const;             // sum of committed()
     bool folded(int pos) const;
+    int lastRaiser() const { return lastRaiser_; }  // seat that made the last raise, -1 if none
 
 private:
     void advance();
@@ -56,7 +60,7 @@ private:
 
     Config cfg_;
     std::array<double, NPOS> committed_{};
-    std::array<bool, NPOS> folded_{}, acted_{}, raised_{};
+    std::array<bool, NPOS> folded_{}, acted_{}, raised_{}, called_{};  // called_: called the open
     int toAct_ = UTG;
     int raises_ = 0;      // 0 = blinds only, 1 = open, 2 = 3-bet, 3 = 4-bet, 4 = 5-bet
     int lastRaiser_ = -1;

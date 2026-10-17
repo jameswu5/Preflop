@@ -77,7 +77,7 @@ void Solver::run(long iterations) {
 }
 
 Strategy Solver::average() const {
-    Strategy s(cfg_);
+    Strategy s(cfg_, sc_.realization);
     for (int n = 0; n < tree_.size(); ++n)
         for (int b = 0; b < NBUCKETS; ++b) {
             const auto& ss = stratSum_[size_t(n) * NBUCKETS + b];
@@ -125,6 +125,7 @@ bool Solver::loadCheckpoint(const std::string& path) {
     if (!in.read(magic, 4) || std::memcmp(magic, "PFCK", 4) || !get(in, version) || version != CK_VERSION ||
         !get(in, cfg) || !get(in, sc) || !get(in, t) || !get(in, rlen) || rlen > 1 << 16)
         return false;
+    sc.realization = sc_.realization;  // R may differ: warm start
     if (std::memcmp(&cfg, &cfg_, sizeof cfg) || std::memcmp(&sc, &sc_, sizeof sc)) return false;
     std::string r(rlen, '\0');
     std::mt19937 rng;

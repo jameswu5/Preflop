@@ -31,7 +31,8 @@ Tree::Tree(const Config& cfg) {
     addNode(*this, Hand(rng, cfg));
 }
 
-Strategy::Strategy(const Config& cfg) : cfg_(cfg), tree_(cfg), p_(size_t(tree_.size()) * NBUCKETS) {
+Strategy::Strategy(const Config& cfg, const RealizationConfig& rc)
+    : cfg_(cfg), rc_(rc), tree_(cfg), p_(size_t(tree_.size()) * NBUCKETS) {
     for (int n = 0; n < tree_.size(); ++n) {
         int k = __builtin_popcount(tree_.legal[n]);
         for (int b = 0; b < NBUCKETS; ++b)
@@ -49,9 +50,10 @@ int Strategy::nodeFor(const std::vector<Act>& history) const {
 const std::array<float, 3>& Strategy::probs(int node, int bucket) const { return p_[size_t(node) * NBUCKETS + bucket]; }
 std::array<float, 3>& Strategy::probs(int node, int bucket) { return p_[size_t(node) * NBUCKETS + bucket]; }
 
-// File: "PFST" u32 version, Config (raw), i32 nodes, then probs float[nodes][169][3].
+// File: "PFST" u32 version, Config (raw), RealizationConfig (raw), i32 nodes,
+// then probs float[nodes][169][3].
 // The tree itself is rebuilt from the Config and checked against the node count.
-static constexpr uint32_t VERSION = 1;
+static constexpr uint32_t VERSION = 2;
 
 bool Strategy::save(const std::string& path) const {
     std::string tmp = path + ".tmp";
@@ -61,6 +63,7 @@ bool Strategy::save(const std::string& path) const {
         out.write("PFST", 4);
         out.write(reinterpret_cast<const char*>(&VERSION), sizeof VERSION);
         out.write(reinterpret_cast<const char*>(&cfg_), sizeof cfg_);
+        out.write(reinterpret_cast<const char*>(&rc_), sizeof rc_);
         out.write(reinterpret_cast<const char*>(&n), sizeof n);
         out.write(reinterpret_cast<const char*>(p_.data()), p_.size() * sizeof p_[0]);
         if (!out) return false;
@@ -73,16 +76,18 @@ bool Strategy::load(const std::string& path) {
     char magic[4];
     uint32_t version;
     Config cfg;
+    RealizationConfig rc;
     int32_t n;
     if (!in.read(magic, 4) || std::memcmp(magic, "PFST", 4) || !in.read(reinterpret_cast<char*>(&version), sizeof version) ||
         version != VERSION || !in.read(reinterpret_cast<char*>(&cfg), sizeof cfg) ||
+        !in.read(reinterpret_cast<char*>(&rc), sizeof rc) ||
         !in.read(reinterpret_cast<char*>(&n), sizeof n))
         return false;
     Tree tree(cfg);
     if (n != tree.size()) return false;
     std::vector<std::array<float, 3>> p(size_t(n) * NBUCKETS);
     if (!in.read(reinterpret_cast<char*>(p.data()), p.size() * sizeof p[0]) || in.peek() != EOF) return false;
-    cfg_ = cfg, tree_ = std::move(tree), p_ = std::move(p);
+    cfg_ = cfg, rc_ = rc, tree_ = std::move(tree), p_ = std::move(p);
     return true;
 }
 

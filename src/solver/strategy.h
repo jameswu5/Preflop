@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "solver/utility.h"
 #include "trainer/game.h"
 
 namespace pf {
@@ -23,12 +24,14 @@ struct Tree {
 class Strategy {
 public:
     // Uniform over the legal actions at every node: a stand-in until a solve exists.
-    explicit Strategy(const Config& cfg = {});
+    explicit Strategy(const Config& cfg = {}, const RealizationConfig& rc = {});
 
     bool load(const std::string& path);  // false (and unchanged) on a missing or malformed file
     bool save(const std::string& path) const;
 
     const Config& config() const { return cfg_; }  // build Hands with this so the tree matches
+    // The payoff model the strategy was solved with; use it for rollouts so EVs match the solve.
+    const RealizationConfig& realization() const { return rc_; }
     const Tree& tree() const { return tree_; }
 
     int root() const { return 0; }
@@ -42,6 +45,7 @@ public:
 
 private:
     Config cfg_;
+    RealizationConfig rc_;
     Tree tree_;
     std::vector<std::array<float, 3>> p_;  // [node * 169 + bucket]
 };

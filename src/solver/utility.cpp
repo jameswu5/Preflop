@@ -11,6 +11,14 @@ static std::array<bool, NPOS> liveSeats(const Hand& h) {
     return live;
 }
 
+double realization(const RealizationConfig& rc, bool lastToAct, Card a, Card b) {
+    int hi = std::max(a.rank, b.rank), lo = std::min(a.rank, b.rank);
+    double r = hi == lo ? rc.pair : a.suit == b.suit ? rc.suited : rc.offsuit;
+    if (hi != lo) r -= rc.gap * std::min(hi - lo - 1, 4);
+    r -= rc.low * (12 - hi);
+    return (lastToAct ? rc.ip : rc.oop) * std::max(r, 0.05);
+}
+
 bool allIn(const Hand& h) {
     for (int p = 0; p < NPOS; ++p)
         if (!h.folded(p) && h.stack(p) <= 0) return true;
@@ -32,7 +40,7 @@ std::array<double, NPOS> payoffs(const Hand& h, const std::array<double, NPOS>& 
         bool ai = allIn(h);
         double sum = 0;
         for (int p = 0; p < NPOS; ++p)
-            if (live[p]) sum += share[p] = eq[p] * (ai ? 1 : p == last ? rc.ip : rc.oop);
+            if (live[p]) sum += share[p] = eq[p] * (ai ? 1 : realization(rc, p == last, h.cards[p][0], h.cards[p][1]));
         assert(sum > 0);
         for (double& s : share) s /= sum;
     }

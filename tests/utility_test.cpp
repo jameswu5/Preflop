@@ -20,7 +20,7 @@ static void play(Hand& h, std::initializer_list<Act> acts) {
 }
 
 int main() {
-    const RealizationConfig rc{1.0, 0.8};
+    const RealizationConfig rc{1.0, 0.8, 1, 1, 1, 0, 0};  // position-only, so payoffs are hand-checkable
     {  // fold-out: UTG opens, everyone folds; UTG wins the blinds
         Hand h(rng);
         play(h, {R, F, F, F, F, F});
@@ -46,7 +46,7 @@ int main() {
         assert(near(u[BTN], 0.5 / 0.9 * 6.5 - 2.5) && near(u[CO], 0.4 / 0.9 * 6.5 - 2.5));
         assert(near(total(u), 0));
         // equal R reduces to raw equity
-        auto v = payoffs(h, {0, 0, 0.3, 0.7, 0, 0}, {0.9, 0.9});
+        auto v = payoffs(h, {0, 0, 0.3, 0.7, 0, 0}, {0.9, 0.9, 1, 1, 1, 0, 0});
         assert(near(v[CO], 0.3 * 6.5 - 2.5) && near(v[BTN], 0.7 * 6.5 - 2.5));
     }
     {  // flop multiway: UTG opens, HJ and BB call. HJ acts last postflop among UTG, HJ, BB.
@@ -73,6 +73,18 @@ int main() {
             assert(std::fabs(total(u)) < 1e-9);
             for (int p = 0; p < NPOS; ++p) assert(u[p] >= -h.committed(p) - 1e-9);
         }
+    }
+    {  // hand-class realization: neutral class terms are position-only; each term moves R as documented
+        auto c = [](int rank, int suit) { return Card{uint8_t(rank), uint8_t(suit)}; };
+        RealizationConfig d{1.0, 0.85, 1, 1, 1, 0, 0};
+        assert(near(realization(d, true, c(5, 0), c(0, 1)), 1.0) && near(realization(d, false, c(5, 0), c(0, 1)), 0.85));
+        RealizationConfig t{1.0, 0.8, 1.1, 1.05, 0.9, 0.05, 0.02};
+        assert(near(realization(t, true, c(12, 0), c(12, 1)), 1.1));                 // AA: pair, no low penalty
+        assert(near(realization(t, true, c(12, 0), c(11, 0)), 1.05));                // AKs: connected
+        assert(near(realization(t, false, c(12, 0), c(9, 1)), 0.8 * (0.9 - 0.1)));   // AJo: 2 gaps, OOP
+        assert(near(realization(t, true, c(5, 0), c(0, 1)), 0.9 - 0.2 - 0.14));      // 72o: gaps capped at 4, 7 below A
+        RealizationConfig harsh{1.0, 0.8, 1, 1, 0.1, 0.5, 0.5};
+        assert(near(realization(harsh, true, c(5, 0), c(0, 1)), 0.05));             // floored
     }
     std::puts("utility_test: ok");
     return 0;

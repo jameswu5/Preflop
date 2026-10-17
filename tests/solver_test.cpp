@@ -71,10 +71,13 @@ int main() {
         assert(s.actor(n) == BTN && s.probs(n, 0)[0] == 1.0f / 3);
         assert(s.probs(s.nodeFor({F, F, F, F}), 0)[int(C)] == 0);  // SB can't complete
         assert(s.nodeFor({C}) == -1);                                // no limping
-        s.probs(n, 0) = {0, 0, 1};
-        assert(s.save("solver_test.strat"));
+        RealizationConfig rc;
+        rc.oop = 0.7;
+        Strategy s2(Config{}, rc);
+        s2.probs(n, 0) = {0, 0, 1};
+        assert(s2.save("solver_test.strat"));
         Strategy t;
-        assert(t.load("solver_test.strat") && t.probs(n, 0)[int(R)] == 1);
+        assert(t.load("solver_test.strat") && t.probs(n, 0)[int(R)] == 1 && t.realization().oop == 0.7);
         std::ofstream("solver_test.strat", std::ios::binary) << "junk";
         assert(!t.load("solver_test.strat") && t.probs(n, 0)[int(R)] == 1);  // unchanged on failure
         std::remove("solver_test.strat");
@@ -109,6 +112,10 @@ int main() {
         Strategy sa = a.average(), sb = b.average(), scs = c.average();
         for (int n = 0; n < sa.tree().size(); ++n)
             for (int k = 0; k < NBUCKETS; ++k) assert(sa.probs(n, k) == sb.probs(n, k) && scs.probs(n, k) == sb.probs(n, k));
+        SolverConfig warm = sc;
+        warm.realization.oop = 0.7;
+        Solver w(pf10, warm, eq, 5);
+        assert(w.loadCheckpoint("solver_test.ck") && w.iterations() == 15000);  // only R differs: warm start
         SolverConfig other = sc;
         other.flopBoards = 50;
         Solver d(pf10, other, eq, 5);

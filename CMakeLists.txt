@@ -63,4 +63,4 @@ FetchContent_Declare(raylib
 FetchContent_MakeAvailable(raylib)
 
 add_executable(preflop src/gui/main.cpp)
-target_link_libraries(preflop trainer raylib)
+target_link_libraries(preflop trainer raylib Threads::Threads)

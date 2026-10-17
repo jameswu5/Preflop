@@ -8,12 +8,20 @@
 
 namespace pf {
 
-// Equity realization factors, the main tuning knob (validation.md). `ip` goes to the live player
-// who acts last postflop, `oop` to every other live player.
-// ponytail: position-only R; add per-hand-class adjustments here when tuning calls for them.
+// Equity realization factors, the main tuning knob (validation.md). R = position * hand class:
+// `ip` for the live player who acts last postflop, `oop` for the others, times the hand's class
+// multiplier, minus penalties for unconnected and low cards. Defaults were hand-tuned on the
+// validation.md sanity checks (6-max: UTG opens 16.5%, BTN 42%, BB folds 38% vs a BTN open), not
+// fit to reference charts yet.
 struct RealizationConfig {
-    double ip = 1.0, oop = 0.85;
+    double ip = 1.0, oop = 0.8;
+    double pair = 1.0, suited = 1.0, offsuit = 0.85;  // class multipliers
+    double gap = 0.05;  // per rank between unpaired cards (KQ 0, KJ 1, ..., 4+ counts as 4)
+    double low = 0.03;  // per rank the higher card is below an ace (A-x 0, 32 11)
 };
+
+// R for one player's hand, floored at 0.05 so no hand realizes nothing.
+double realization(const RealizationConfig& rc, bool lastToAct, Card a, Card b);
 
 // All-in called: done() with every live player at currentBet() == stack.
 bool allIn(const Hand& h);

@@ -30,8 +30,8 @@ public:
     Strategy average() const;
 
     // Full solver state (tables, iteration, RNG), so resuming continues exactly where it stopped.
-    // load fails (state unchanged) if the file is malformed or was made with a different
-    // Config / SolverConfig.
+    // load fails (state unchanged) if the file is malformed or was made with a different Config /
+    // SolverConfig. A different RealizationConfig is allowed: warm-starting a tuning run.
     bool saveCheckpoint(const std::string& path) const;
     bool loadCheckpoint(const std::string& path);
 

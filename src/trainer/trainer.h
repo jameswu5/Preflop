@@ -22,9 +22,10 @@
 namespace pf {
 
 // The user's decision, by what they face. NSPOT doubles as "any" in a filter.
-enum class SpotType { Open, ThreeBet, Squeeze, FourBet, FiveBet, NSPOT };
+enum class SpotType { Open, ThreeBet, Squeeze, FourBet, FiveBet, VsSqueeze, NSPOT };
 // Open: unopened pot. ThreeBet: one open, no callers. Squeeze: an open plus callers.
 // FourBet: facing a 3-bet. FiveBet: facing a 4-bet or more (incl. an all-in).
+// VsSqueeze: the user cold-called the open and now faces a 3-bet (Config::squeezeCall).
 constexpr int NSPOT = int(SpotType::NSPOT);
 const char* spotName(SpotType t);
 
@@ -41,7 +42,8 @@ struct Spot {
     SpotType type = SpotType::NSPOT;
 };
 
-SpotType classify(const std::vector<Step>& path);
+// Type of the decision `user` faces after `path`.
+SpotType classify(const Strategy& s, const std::vector<Step>& path, int user);
 
 struct SpotFilter {
     SpotType type = SpotType::NSPOT;  // NSPOT = any

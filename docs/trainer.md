@@ -5,7 +5,7 @@ The trainer has two layers: a **headless core** (spot generation, bots, rollouts
 ## Core
 
 - Each hand: deal 6 hole cards, simulate bots up to the user's decision point, show the spot, and take the user's choice (F/C/R).
-- **Spot filtering:** to drill specific spots (3-bet, 4-bet, squeeze), reject-sample hands until the action history matches the spot type, or force the history and deal opponent hands consistent with it (weighted as in the rollout section below).
+- **Spot filtering:** `deal()` reject-samples hands until the user's seat reaches a decision of the requested type and position. Bots, and the user's own earlier decisions in the hand, play from the strategy. Spot types are by what the user faces: open (unopened pot), vs open, squeeze (an open plus callers), vs 3-bet, vs squeeze (the user cold-called and someone 3-bet), and vs 4-bet+. A type/seat that can never occur (e.g. vs squeeze at UTG or BB) returns nothing after the try limit.
 - Bots sample their actions from the solved average strategy for their (history, hand). This keeps them mixed and lets them respond sensibly to off-equilibrium user lines.
 - **Feedback:** do not read action values from sampled regrets (too noisy). Instead, for the user's actual hand, roll out each legal action about 20k times with all bots following their average strategies, and report EV in bb per action plus EV loss of the user's choice versus the best action.
   - Each rollout **re-deals the opponents' hands** from the deck minus the user's cards. Do not use the hands the bots actually hold, since that leaks hidden information and adds variance.

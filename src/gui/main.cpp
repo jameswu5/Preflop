@@ -255,20 +255,42 @@ void rangePanel(const pf::Strategy& st, const Decision& d, const std::array<doub
 
 const char* POS_PICK[] = {"Random", "UTG", "HJ", "CO", "BTN", "SB", "BB"};
 
+// Whether the user can ever face spot type t in position pos (-1 = random: always). Measured by deal()
+// running out of tries; the GUI also falls back to any spot if a combination is missed here.
+bool possible(pf::SpotType t, int pos) {
+    using enum pf::SpotType;
+    switch (t) {
+    case Open: return pos != pf::BB;
+    case ThreeBet: return pos != pf::UTG;
+    case Squeeze: return pos != pf::UTG && pos != pf::HJ;
+    case VsSqueeze: return pos != pf::UTG && pos != pf::BB;
+    default: return true;
+    }
+}
+
 // Spot picker: which decision to drill. Applies from the next hand.
 bool pickerPanel(pf::SpotFilter& f) {
     panelBg(MENU);
     DrawTextEx(bold, "Drill spots", {MENU.x + 28, MENU.y + 24}, 26, 0, WHITE);
     DrawTextEx(font, "Applies from the next hand", {MENU.x + 28, MENU.y + 58}, 16, 0, GREY);
     DrawTextEx(font, "Spot", {MENU.x + 28, MENU.y + 100}, 15, 0, GREY);
+    float bw = (MENU.width - 56 + 8) / (pf::NSPOT + 1);  // one row of buttons, however many spot types exist
     for (int t = 0; t <= pf::NSPOT; t++) {  // NSPOT ("Any") first
         int i = (t + pf::NSPOT) % (pf::NSPOT + 1);
-        if (button({MENU.x + 28 + t * 108.f, MENU.y + 124, 100, 40}, pf::spotName(pf::SpotType(i)), int(f.type) == i, 16))
+        if (button({MENU.x + 28 + t * bw, MENU.y + 124, bw - 8, 40}, pf::spotName(pf::SpotType(i)), int(f.type) == i, 15))
             f.type = pf::SpotType(i);
     }
     DrawTextEx(font, "Your position", {MENU.x + 28, MENU.y + 196}, 15, 0, GREY);
-    for (int p = -1; p < pf::NPOS; p++)
-        if (button({MENU.x + 28 + (p + 1) * 92.f, MENU.y + 220, 84, 40}, POS_PICK[p + 1], f.pos == p, 16)) f.pos = p;
+    if (!possible(f.type, f.pos)) f.pos = -1;
+    for (int p = -1; p < pf::NPOS; p++) {
+        Rectangle r = {MENU.x + 28 + (p + 1) * 92.f, MENU.y + 220, 84, 40};
+        if (!possible(f.type, p)) {  // greyed out, not clickable
+            DrawRectangleRounded(r, .3f, 8, {36, 38, 44, 255});
+            text(bold, POS_PICK[p + 1], {r.x + r.width / 2, r.y + r.height / 2}, 16, {80, 84, 92, 255});
+        } else if (button(r, POS_PICK[p + 1], f.pos == p, 16)) {
+            f.pos = p;
+        }
+    }
     DrawTextEx(font, "Random position with any spot rotates the button as usual.", {MENU.x + 28, MENU.y + 280}, 15, 0, GREY);
     return button({MENU.x + MENU.width - 228, MENU.y + MENU.height - 72, 200, 48}, "Done  (Esc)");
 }
@@ -689,7 +711,7 @@ int main(int argc, char** argv) {
         if (a != pf::Act::Fold)
             d.did += " " + fmt(a == pf::Act::Call ? std::min(hand->currentBet(), hand->committed(p) + hand->stack(p)) : hand->raiseTo());
         if (graded) {
-            d.sp = pf::Spot{*hand, p, node, path, pf::classify(path)};
+            d.sp = pf::Spot{*hand, p, node, path, pf::classify(strat, path, p)};
             d.ev = std::async(std::launch::async, [&strat, &eq, rc, sp = *d.sp, seed = rng()] {
                 std::mt19937 r(seed);  // each worker owns its rng
                 return pf::rollout(strat, eq, sp, r, rc);

@@ -3,7 +3,8 @@
 (docs/validation.md "Tuning knobs") by coordinate search.
 
 Each candidate R warm-starts a 6-max solve from a checkpoint (regrets kept, averaging restarted),
-runs --iters iterations, and is scored with `validate` (mean distance over ref/, lower is better).
+runs --iters iterations, and is scored with `validate` (mean distance over ref/, lower is better)
+plus a penalty for each sanity-check band (validation.md) the open ranges fall outside.
 Every round scores the current R plus +/- one step on each parameter in parallel, moves to the best
 improvement, and halves the steps when nothing improves.
 
@@ -20,7 +21,10 @@ import tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 BUILD = os.path.join(ROOT, "build")
 # Start point = current defaults in utility.h; step = initial search step per parameter.
-START = {"oop": 0.85, "pair": 1.0, "suited": 1.075, "offsuit": 0.8, "gap": 0.08, "low": 0.03, "spr": 2.0, "init": 0.0}
+START = {"oop": 0.8, "pair": 1.0375, "suited": 1.075, "offsuit": 0.7875, "gap": 0.08, "low": 0.03, "spr": 2.0, "init": 0.0}
+# Sanity bands on open % (validation.md: UTG mid-teens, BTN in the 40s); PENALTY per point outside.
+BANDS = {"UTG": (13.0, 18.0), "BTN": (40.0, 50.0)}
+PENALTY = 0.005
 STEP = {"oop": 0.05, "pair": 0.05, "suited": 0.05, "offsuit": 0.05, "gap": 0.02, "low": 0.01, "spr": 1.0, "init": 0.05}
 
 
@@ -38,8 +42,13 @@ def evaluate(r, args, tmp):
     if not m:
         raise RuntimeError("validate failed:\n" + val)
     btn = re.search(r"^  BTN\s+[0-9.]+% \|\s+([0-9.]+)%", report, re.M)  # BB fold vs BTN open, for context
+    opens = {s: float(v) for s, v in re.findall(r"^  (UTG|HJ|CO|BTN|SB)\s+([0-9.]+)%", report, re.M)}
+    pen = PENALTY * sum(max(lo - opens[s], 0, opens[s] - hi) for s, (lo, hi) in BANDS.items())
     os.remove(ck), os.remove(out)
-    return float(m.group(1)), btn.group(1) if btn else "?"
+    info = f"BB folds {btn.group(1) if btn else '?'}% vs BTN, opens " + "/".join(f"{opens.get(s, 0):.0f}" for s in BANDS)
+    if pen:
+        info += f", sanity penalty {pen:.4f}"
+    return float(m.group(1)) + pen, info
 
 
 def main():
@@ -62,13 +71,13 @@ def main():
                         cands.append(c)
             scores = list(pool.map(lambda c: evaluate(c, args, tmp), cands))
             best = min(range(len(cands)), key=lambda i: scores[i][0])
-            print(f"round {rnd}: current {scores[0][0]:.4f} (BB folds {scores[0][1]}% vs BTN)  {cur}")
+            print(f"round {rnd}: current {scores[0][0]:.4f} ({scores[0][1]})  {cur}")
             if best == 0:
                 step = {k: v / 2 for k, v in step.items()}
                 print(f"  no improvement, halving steps -> {step}")
             else:
                 changed = {k: cands[best][k] for k in cur if cands[best][k] != cur[k]}
-                print(f"  best {scores[best][0]:.4f} (BB folds {scores[best][1]}% vs BTN) by {changed}")
+                print(f"  best {scores[best][0]:.4f} ({scores[best][1]}) by {changed}")
                 cur = cands[best]
             print(flush=True)
     print("final R:", " ".join(f"--r {k}={v}" for k, v in cur.items()))

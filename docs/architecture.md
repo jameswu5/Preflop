@@ -6,17 +6,20 @@ See [brief.md](brief.md) for the stack.
 
 ```
 CMakeLists.txt
-config/            # abstraction configs (sizes, rules, reference setup), simple key=value files
-src/solver/        # tree builder, legal actions, hand eval wrapper, equity, MCCFR loop
-src/trainer/       # headless core: spot generation, bots, rollouts, stats
+config/            # alternative game configs, key=value files (e.g. pushfold10.cfg)
+src/solver/        # cards, hand eval wrapper, equity, terminal utility, tree + strategy, MCCFR, ranges
+src/trainer/       # rules engine (game.*) and headless trainer core (trainer.*)
 src/gui/           # raylib frontend
-src/tools/         # CLI entry points: solve, export, validate, tune
-data/              # checkpoints, equity tables, exported strategies, reference charts
+src/tools/         # gen_equity, solve, validate (C++), tune.py
+data/              # generated, git-ignored: hu_equity.bin, 6max.ck checkpoint, strategy_6max.bin
+ref/               # reference charts for validation, git-ignored (personal use only)
 docs/              # project docs
-tests/
+tests/             # plain-assert executables run by CTest
 ```
 
 ## Milestones
+
+Milestones 1–8 are done. From 9, calling squeezes and the multithreaded solver are done.
 
 1. **Tree builder + rules engine:** legal actions, pot/stack tracking, raise sizing per config, terminal detection. Unit-test with hand-checked sequences (open / 3-bet / 4-bet / 5-bet / squeeze / overcall / all-in), including the sizing examples in [game-rules.md](game-rules.md).
 2. **Hand evaluation + equity:** integrate the evaluator, 169-bucket mapping, board sampling for all-ins, heads-up equity table generation, multiway K-board estimator.

@@ -1,4 +1,5 @@
 #undef NDEBUG  // the build defaults to Release; keep asserts on
+#include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <cstdio>
@@ -19,15 +20,31 @@ int main() {
             for (int pos : {CO, BTN}) {
                 auto sp = deal(s, {SpotType(t), pos}, rng);
                 assert(sp && sp->user == pos && sp->hand.toAct() == pos && sp->type == SpotType(t));
-                assert(classify(sp->path) == sp->type && s.actor(sp->node) == pos);
+                assert(classify(s, sp->path, pos) == sp->type && s.actor(sp->node) == pos);
                 std::vector<Act> hist;
                 for (auto& st : sp->path) hist.push_back(st.act);
                 assert(s.nodeFor(hist) == sp->node);
             }
         assert(!deal(s, {SpotType::Squeeze, UTG}, rng, 1000));  // nobody can have opened yet
+        assert(!deal(s, {SpotType::VsSqueeze, BB}, rng, 1000));  // calling closes the action at BB
+
+        // classify on hand-built paths: nodes from the tree, so actors are known
+        auto pathOf = [&](std::vector<Act> acts) {
+            std::vector<Step> p;
+            for (int n = s.root(); Act a : acts) p.push_back({n, a}), n = s.child(n, a);
+            return p;
+        };
+        auto sqz = pathOf({F, R, F, C, R, F, F});  // HJ opens, BTN calls, SB squeezes, BB and HJ fold
+        assert(s.actor(s.nodeFor({F, R, F, C, R, F, F})) == BTN);
+        assert(classify(s, sqz, BTN) == SpotType::VsSqueeze && classify(s, sqz, HJ) == SpotType::FourBet);  // HJ opened
+        auto tb = pathOf({F, F, R, R, F, F});  // CO opens, BTN 3-bets, blinds fold: CO faces the 3-bet
+        assert(s.actor(s.nodeFor({F, F, R, R, F, F})) == CO && classify(s, tb, CO) == SpotType::FourBet);
+        auto vs = deal(s, {SpotType::VsSqueeze, BTN}, rng);  // default Config: the cold caller may call
+        auto legal = vs->hand.legal();
+        assert(std::find(legal.begin(), legal.end(), C) != legal.end());
         assert(!deal(s, {SpotType::Open, BB}, rng, 1000));      // no limps, so BB never sees it unopened
         auto any = deal(s, {}, rng);
-        assert(any && any->type == classify(any->path));
+        assert(any && any->type == classify(s, any->path, any->user));
 
         // uniform weight = product of 1/|legal| over the bots' steps
         auto sq = deal(s, {SpotType::Squeeze, BTN}, rng);

@@ -11,10 +11,11 @@ namespace pf {
 // Equity realization factors, the main tuning knob (validation.md). R = position * hand class:
 // `ip` for the live player who acts last postflop, `oop` for the others, times the hand's class
 // multiplier, minus penalties for unconnected and low cards. Defaults were fit by
-// src/tools/tune.py to public RFI and BTN-vs-CO charts with squeeze calls on (docs/validation.md).
+// src/tools/tune.py to public RFI and BTN-vs-CO charts with squeeze calls on, constrained to the
+// validation.md open-% sanity bands (docs/validation.md).
 struct RealizationConfig {
-    double ip = 1.0, oop = 0.85;
-    double pair = 1.0, suited = 1.075, offsuit = 0.8;  // class multipliers
+    double ip = 1.0, oop = 0.8;
+    double pair = 1.0375, suited = 1.075, offsuit = 0.7875;  // class multipliers
     double gap = 0.08;  // per rank between unpaired cards (KQ 0, KJ 1, ..., 4+ counts as 4)
     double low = 0.03;  // offsuit only: per rank the higher card is below an ace (A-x 0, 32o 11)
     // Pot dependence (0 = off). init: R *= 1 + init for the last raiser. spr: the deviation from 1

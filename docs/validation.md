@@ -14,7 +14,7 @@
 
 ## Tools
 
-**Convergence.** `solve` prints the *strategy change* per chunk: how much of the strategy moved since the last chunk, with each spot weighted by how often it is reached and each hand class by how often it gets there. It starts near 40% and falls toward 0; the 300M-iteration 6-max solve reads about 0.08% per 10M iterations, which is converged for practical purposes.
+**Convergence.** `solve` prints the *strategy change* per chunk: how much of the strategy moved since the last chunk, with each spot weighted by how often it is reached and each hand class by how often it gets there. It falls toward 0 as the solve converges; compare chunks of equal length.
 
 **Sanity report.** `solve --report` prints open % per seat, BB defence (fold/call/3-bet) against each open, the opener's response to a BB 3-bet, and how often AA/KK 4-bet there. To report on an existing solve without running more iterations, resume its checkpoint with `--iters` equal to its current count.
 
@@ -31,17 +31,16 @@ Fold is the remainder. Range notation (`src/solver/range.h`): `AA`, `AKs`, `AKo`
 
 **Validate.** `build/validate [--strategy file] [--ref dir]` scores every reference spot with the distance above, weighting each hand class by its combos and by how often our strategy brings it to the spot. It prints our widths vs the reference's, the most different hand classes, and a final `score` (mean distance, 0 = identical).
 
-**Tune.** `src/tools/tune.py` fits the realization factors (`RealizationConfig` in `src/solver/utility.h`) to `ref/` by coordinate search. Each candidate warm-starts a 6-max solve from `data/6max.ck` (`solve --reset-average`: regrets kept, averaging restarted), runs `--iters` iterations (default 20M) and is scored by `validate`; candidates run in parallel. Copy the final `--r` values into the `RealizationConfig` defaults and re-solve.
+**Tune.** `src/tools/tune.py` fits the realization factors (`RealizationConfig` in `src/solver/utility.h`) to `ref/` by coordinate search. Each candidate warm-starts a 6-max solve from `data/6max.ck` (`solve --reset-average`: regrets kept, averaging restarted), runs `--iters` iterations (default 20M) at K = 25 boards, and is scored by `validate` plus 0.005 per percentage point the UTG / BTN open falls outside 13–18% / 40–50% (the sanity bands above), so the fit cannot trade plausibility for chart distance. Candidates run in parallel. Copy the final `--r` values into the `RealizationConfig` defaults and re-solve.
 
-**Speed.** `solve --threads N` runs iterations in parallel (results are no longer bit-reproducible; `--threads 1` is). On this 4+4-core Mac, 8 threads run 6-max about 3.6x faster than 1. `--boards K` sets the boards per multiway flop equity estimate: K=25 runs about 1.45x faster than the default 100, and a K=25 solve differs from a K=100 solve by distance 0.015, well below the 0.05 to the reference charts, so `tune.py` uses K=25.
+**Speed.** `solve --threads N` runs iterations in parallel (no longer bit-reproducible; `--threads 1` is). `--boards K` sets the boards per multiway flop equity estimate; `tune.py` uses K = 25 because a K = 25 solve stays much closer to a K = 100 solve than either is to the reference charts. Final solves use the default K = 100.
 
-**Model notes from tuning so far.**
-- Flat R made the blinds call almost everything (BB folded 1% vs an SB open). Hand-class R fixed it.
-- The low-card penalty applies to offsuit hands only: small pairs and suited connectors realize well through sets and draws.
-- Fit against pokerskill.com RFI charts (UTG/HJ/CO/BTN opens): score 0.0657 -> 0.0544, mainly suited 1.0 -> 1.075, offsuit 0.85 -> 0.8, gap 0.05 -> 0.06. Its SB chart is set aside (`ref/rfi_5_sb.txt.off`): it is identical to its BTN "always raise" range, so probably not a real SB solution.
-- Our tree 3-bet more and flatted less than reference charts when cold-calling an open (BTN vs CO: 14% / 6% vs 6% / 14%). Two causes: the rule that a cold caller facing a squeeze could only fold or 4-bet (now `squeezeCall`, default on), and R being the same in every pot, which made suited hands prefer big pots (we 3-bet KJs and flatted KJo, the reverse of real solvers).
-- Pot-dependent R (`spr`, `init` in RealizationConfig) shrinks the hand-class/position deviation toward 1 as SPR falls (3-bet and 4-bet pots) and optionally rewards the last aggressor. First sweep (60M iterations each, squeeze calls on): the squeeze rule alone moved BTN vs CO to 13% / 7%; spr = 2 gave 9.5% / 8.5% and the best score; spr = 4 turned AJ and KQ the right way round (AJo 3-bets, AJs flats) but individual hands are noisy near indifference. Every `init` > 0 scored worse against the current references, which have only one flat-vs-3-bet spot; more such charts are needed before trusting either term.
-- Fit with squeeze calls on, over all eight parameters (ref/: UTG/HJ/CO/BTN opens + BTN vs CO): score 0.0751 -> 0.0612 with oop 0.8 -> 0.85, gap 0.06 -> 0.08, spr 2, init 0 (now the defaults).
+**Model design notes.**
+- A flat, position-only R made the blinds defend almost every hand; R therefore depends on hand class.
+- The low-card penalty applies to offsuit hands only: small pairs and suited connectors realize through sets and draws.
+- R also depends on the pot: the hand-class/position deviation shrinks toward 1 as SPR falls (3-bet and 4-bet pots), with an optional bonus for the last aggressor (`spr`, `init`). With a pot-independent R, suited hands preferred big pots, so the solve 3-bet suited broadways and flatted offsuit ones, the reverse of real solvers.
+- Squeeze calls (`squeezeCall`, game-rules.md) are on: forbidding them made every cold call expensive and pushed the solve toward 3-bet-or-fold.
+- Reference caveats: the pokerskill SB open chart is set aside (`ref/rfi_5_sb.txt.off`) because it is identical to its BTN "always raise" range. Its BTN vs CO chart 3-bets the suited broadways and flats the offsuit ones, the reverse of the usual solver pattern, so it pulls the fit away from that pattern. Charts that separate flats from 3-bets, from a real solver, matter more than further fitting.
 
 ## Reference data
 

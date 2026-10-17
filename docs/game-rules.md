@@ -26,7 +26,7 @@ Actions per node are a subset of `{FOLD, CALL, RAISE}`, with the raise amount de
 - BB 3-bets an SB open (3bb, IP): 3.5 × 3 = 10.5bb.
 - CO 4-bets that 8.8bb BTN 3-bet (OOP): 2.75 × 8.8 = 24.2bb. 4-bets size off the rounded 3-bet actually on the table.
 
-**Squeeze calls:** with `squeezeCall = 1` (default) a cold caller facing a squeeze may fold, call or 4-bet; facing a 4-bet it may still only fold or raise. `squeezeCall = 0` restores the old fold-or-4-bet rule. Allowing the call doubles the tree (3,751 to 7,499 decision nodes). It was added because forbidding it made every flat expensive (blinds squeeze, the caller must fold or 4-bet), so the solver 3-bet far more and flatted far less than reference charts (BTN vs CO: 14% 3-bet / 6% flat vs 6% / 14%).
+**Squeeze calls:** with `squeezeCall = 1` (default) a cold caller facing a squeeze may fold, call or 4-bet; facing a 4-bet it may still only fold or raise. `squeezeCall = 0` restores the old fold-or-4-bet rule. Allowing the call doubles the tree (3,751 to 7,499 decision nodes). It was added because forbidding it made every flat expensive (blinds squeeze, the caller must fold or 4-bet), so the solver 3-bet far more and flatted far less than reference charts.
 
 If validating against a specific reference solution, copy its sizes and rules into the config. Matching the setup matters more than any other choice.
 

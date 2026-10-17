@@ -9,19 +9,21 @@
 namespace pf {
 
 const char* spotName(SpotType t) {
-    static const char* names[] = {"Open", "vs open", "Squeeze", "vs 3-bet", "vs 4-bet+", "Any"};
+    static const char* names[] = {"Open", "vs open", "Squeeze", "vs 3-bet", "vs 4-bet+", "vs squeeze", "Any"};
     return names[int(t)];
 }
 
-SpotType classify(const std::vector<Step>& path) {
+SpotType classify(const Strategy& s, const std::vector<Step>& path, int user) {
     int raises = 0, callers = 0;
+    bool userCalled = false;  // the user cold-called the open
     for (const Step& st : path) {
         if (st.act == Act::Raise) ++raises;
-        else if (st.act == Act::Call && raises == 1) ++callers;
+        else if (st.act == Act::Call && raises == 1) ++callers, userCalled |= s.actor(st.node) == user;
     }
     if (raises == 0) return SpotType::Open;
     if (raises == 1) return callers ? SpotType::Squeeze : SpotType::ThreeBet;
-    return raises == 2 ? SpotType::FourBet : SpotType::FiveBet;
+    if (raises == 2) return userCalled ? SpotType::VsSqueeze : SpotType::FourBet;
+    return SpotType::FiveBet;
 }
 
 static const std::array<float, 3>& handProbs(const Strategy& s, int node, const Holes& cards) {
@@ -49,9 +51,9 @@ std::optional<Spot> deal(const Strategy& s, const SpotFilter& f, std::mt19937& r
     for (int t = 0; t < tries; ++t) {
         int user = f.pos >= 0 ? f.pos : seat(rng);
         Spot sp{Hand(rng, s.config()), user, s.root(), {}};
-        while (!sp.hand.done()) {
+        while (!sp.hand.done() && !sp.hand.folded(user)) {
             if (sp.hand.toAct() == user) {
-                sp.type = classify(sp.path);
+                sp.type = classify(s, sp.path, user);
                 if (f.type == SpotType::NSPOT || f.type == sp.type) return sp;
             }
             int node = sp.node;

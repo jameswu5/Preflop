@@ -1,5 +1,8 @@
 // GGPoker-style 6-max preflop table. Random bots with human-like think times.
+// Click a player (or press H for yourself) to see the strategy grid at their last decision.
 #include "raylib.h"
+#include "solver/cards.h"
+#include "solver/strategy.h"
 #include "trainer/game.h"
 
 #include <algorithm>
@@ -95,8 +98,98 @@ void chips(Vector2 p, double amt) {
     DrawTextEx(bold, s.c_str(), {p.x + 21, std::round(p.y - m.y / 2)}, 17, 0, WHITE);
 }
 
+int seatAt(Vector2 m) {  // seat under the mouse, -1 if none
+    for (int s = 0; s < 6; s++)
+        if (CheckCollisionPointRec(m, {SEAT[s].x - 78, SEAT[s].y - 60, 156, 120})) return s;
+    return -1;
+}
+
 int posOf(int seat, int btn) { return (seat - btn + pf::BTN + pf::NPOS) % pf::NPOS; }
 int seatOf(int pos, int btn) { return (pos - pf::BTN + btn + pf::NPOS) % pf::NPOS; }
+
+// One decision taken this hand: the strategy node it was made at, for the range panel.
+struct Decision {
+    int node, pos;
+    std::string did;   // "Raise 2.5", "Call 2.5", "Fold", "All-in 100"
+    std::string spot;  // non-fold actions before it, e.g. "UTG Raise 2.5, HJ Call 2.5"
+};
+
+// Grid/legend colours per pf::Act (Fold, Call, Raise).
+const Color ACT_COL[] = {{58, 98, 150, 255}, {46, 140, 92, 255}, {196, 82, 40, 255}};
+const char* ACT_NAME[] = {"Fold", "Call", "Raise"};
+constexpr Rectangle PANEL = {190, 60, 900, 680};
+constexpr Rectangle CLOSE_BTN = {PANEL.x + PANEL.width - 224, PANEL.y + PANEL.height - 72, 200, 48};
+constexpr float CELL = 42, GX = PANEL.x + 24, GY = PANEL.y + 88;
+
+int combos(int b) { return b / 13 == b % 13 ? 6 : b / 13 < b % 13 ? 4 : 12; }
+
+void actRows(const std::array<float, 3>& p, float x, float y) {  // "Raise 33.3%" lines, aggressive first
+    for (int a = 2; a >= 0; a--, y += 24) {
+        DrawRectangleRounded({x, y + 3, 14, 14}, .3f, 4, ACT_COL[a]);
+        DrawTextEx(font, ACT_NAME[a], {x + 22, y}, 18, 0, {200, 204, 210, 255});
+        char b[16];
+        std::snprintf(b, sizeof b, "%.1f%%", p[a] * 100);
+        DrawTextEx(bold, b, {x + 110, y}, 18, 0, WHITE);
+    }
+}
+
+// 13x13 strategy grid for one decision. highlight = hero's bucket, -1 for bots (cards hidden).
+void rangePanel(const pf::Strategy& st, const Decision& d, const std::string& who, int highlight, bool nextHand) {
+    DrawRectangle(0, 0, W, H, {0, 0, 0, 140});
+    DrawRectangleRounded(PANEL, .03f, 12, {24, 26, 31, 252});
+    DrawTextEx(bold, (who + " - " + POS_NAME[d.pos]).c_str(), {GX, PANEL.y + 20}, 26, 0, WHITE);
+    DrawTextEx(font, (d.spot.empty() ? "Unopened pot" : d.spot).c_str(), {GX, PANEL.y + 54}, 17, 0, {150, 154, 162, 255});
+
+    Vector2 m = GetMousePosition();
+    int hover = -1;
+    for (int b = 0; b < pf::NBUCKETS; b++) {
+        Rectangle c = {GX + b % 13 * CELL, GY + b / 13 * CELL, CELL - 2, CELL - 2};
+        if (CheckCollisionPointRec(m, c)) hover = b;
+        auto& p = st.probs(d.node, b);
+        float x = c.x;
+        for (int a = 2; a >= 0; a--) {  // raise | call | fold, left to right
+            DrawRectangleRec({x, c.y, c.width * p[a], c.height}, ACT_COL[a]);
+            x += c.width * p[a];
+        }
+        std::string n = pf::bucketName(b);
+        text(bold, n, {c.x + c.width / 2 + 1, c.y + c.height / 2 + 1}, 14, {0, 0, 0, 120});
+        text(bold, n, {c.x + c.width / 2, c.y + c.height / 2}, 14, WHITE);
+    }
+    auto outline = [](int b, Color col) {
+        DrawRectangleLinesEx({GX + b % 13 * CELL - 2, GY + b / 13 * CELL - 2, CELL + 2, CELL + 2}, 3, col);
+    };
+    if (highlight >= 0) outline(highlight, {240, 196, 64, 255});
+    if (hover >= 0) outline(hover, WHITE);
+
+    // right column: action taken, hovered (or own) hand, range widths by combos
+    float x = GX + 13 * CELL + 28, y = GY;
+    DrawTextEx(font, "Action", {x, y}, 15, 0, {130, 134, 142, 255});
+    DrawTextEx(bold, d.did.c_str(), {x, y + 18}, 22, 0, WHITE);
+    y += 66;
+    int shown = hover >= 0 ? hover : highlight;
+    if (shown >= 0) {
+        DrawTextEx(font, hover >= 0 ? "Hand" : "Your hand", {x, y}, 15, 0, {130, 134, 142, 255});
+        DrawTextEx(bold, pf::bucketName(shown).c_str(), {x, y + 18}, 26, 0, WHITE);
+        actRows(st.probs(d.node, shown), x, y + 54);
+    } else {
+        DrawTextEx(font, "Hover a hand for its mix", {x, y + 18}, 16, 0, {130, 134, 142, 255});
+    }
+    y += 150;
+    std::array<float, 3> width{};
+    for (int b = 0; b < pf::NBUCKETS; b++)
+        for (int a = 0; a < 3; a++) width[a] += combos(b) * st.probs(d.node, b)[a] / float(pf::NCOMBOS);
+    DrawTextEx(font, "Whole range", {x, y}, 15, 0, {130, 134, 142, 255});
+    float bx = x;
+    for (int a = 2; a >= 0; a--) {
+        DrawRectangleRec({bx, y + 24, 260 * width[a], 12}, ACT_COL[a]);
+        bx += 260 * width[a];
+    }
+    actRows(width, x, y + 48);
+
+    bool hov = CheckCollisionPointRec(m, CLOSE_BTN);
+    DrawRectangleRounded(CLOSE_BTN, .3f, 12, hov ? Color{70, 74, 84, 255} : Color{52, 56, 64, 255});
+    text(bold, nextHand ? "Next hand  (Space)" : "Close  (Esc)", {CLOSE_BTN.x + 100, CLOSE_BTN.y + 24}, 18, WHITE);
+}
 
 struct Button {
     Rectangle r;
@@ -109,9 +202,13 @@ struct Button {
 
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
+    pf::Strategy strat;  // uniform dummy until a solved file is passed: preflop <strategy file>
+    if (argc > 1 && !strat.load(argv[1])) std::fprintf(stderr, "could not load %s, using uniform strategy\n", argv[1]);
+
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_HIGHDPI | FLAG_VSYNC_HINT);
     InitWindow(W, H, "Preflop");
+    SetExitKey(KEY_NULL);  // Esc closes the range panel instead
     SetTargetFPS(60);
 
     auto loadFont = [](const char* path) {
@@ -130,6 +227,16 @@ int main() {
     std::optional<pf::Hand> hand;
     std::string label[pf::NPOS];  // last action per position
     double clock = 0, thinkLen = 0;
+    int node = 0;                // strategy node of the current state, -1 once off the tree
+    std::vector<Decision> log;   // this hand's decisions
+    int view = -1;               // index into log shown in the range panel, -1 = closed
+    bool reviewed = false;       // hero's end-of-hand feedback already shown
+
+    auto lastBy = [&](int pos) {
+        for (int i = int(log.size()) - 1; i >= 0; i--)
+            if (log[i].pos == pos && log[i].node >= 0) return i;
+        return -1;
+    };
 
     auto startTurn = [&] {
         clock = 0;
@@ -138,14 +245,24 @@ int main() {
     };
     auto newHand = [&] {
         btn = (btn + 1) % pf::NPOS;
-        hand.emplace(rng);
+        hand.emplace(rng, strat.config());
         for (auto& l : label) l.clear();
+        node = strat.root();
+        log.clear();
+        view = -1;
+        reviewed = false;
         startTurn();
     };
     auto act = [&](pf::Act a) {
         int p = hand->toAct();
         bool allIn = a == pf::Act::Raise && hand->raiseTo() >= hand->committed(p) + hand->stack(p) - 1e-9;
         label[p] = a == pf::Act::Fold ? "Fold" : a == pf::Act::Call ? "Call" : allIn ? "All-in" : "Raise";
+        std::string spot;
+        for (auto& d : log)
+            if (d.did != "Fold") spot += (spot.empty() ? "" : ", ") + std::string(POS_NAME[d.pos]) + " " + d.did;
+        std::string amt = a == pf::Act::Fold ? "" : " " + fmt(a == pf::Act::Call ? std::min(hand->currentBet(), hand->committed(p) + hand->stack(p)) : hand->raiseTo());
+        log.push_back({node, p, label[p] + amt, spot});
+        node = node >= 0 ? strat.child(node, a) : -1;
         hand->apply(a);
         startTurn();
     };
@@ -159,14 +276,31 @@ int main() {
     newHand();
 
     while (!WindowShouldClose()) {
-        clock += GetFrameTime();
         int hero = posOf(HERO, btn);
         int turn = hand->toAct();
+        Vector2 mouse = GetMousePosition();
+        bool click = IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
 
         // --- update ---
         std::vector<Button> buttons;
-        if (hand->done()) {
-            if (clock > 2.0) newHand();
+        if (view >= 0) {  // panel open: game paused
+            if (IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_ESCAPE) ||
+                (click && (CheckCollisionPointRec(mouse, CLOSE_BTN) || !CheckCollisionPointRec(mouse, PANEL)))) {
+                view = -1;
+                if (hand->done()) newHand();
+            }
+            turn = hand->toAct();
+        } else if (int s = click ? seatAt(mouse) : -1; s >= 0 && lastBy(posOf(s, btn)) >= 0) {
+            view = lastBy(posOf(s, btn));
+        } else if (IsKeyPressed(KEY_H) && lastBy(hero) >= 0) {
+            view = lastBy(hero);
+        } else if (clock += GetFrameTime(); hand->done()) {
+            if (!reviewed && lastBy(hero) >= 0) {  // hero's feedback before the next hand
+                view = lastBy(hero);
+                reviewed = true;
+            } else if (clock > 2.0) {
+                newHand();
+            }
         } else if (turn != hero) {
             if (clock >= thinkLen) botAct();
         } else {
@@ -277,7 +411,7 @@ int main() {
         }
         if (!buttons.empty()) text(font, "F / C / R", {1260 - 3 * 150 / 2.f - 12, 790}, 13, {130, 134, 142, 255});
 
-        if (hand->done()) {
+        if (hand->done() && view < 0) {
             int alive = 0, winner = -1;
             for (int p = 0; p < pf::NPOS; p++)
                 if (!hand->folded(p)) alive++, winner = p;
@@ -285,6 +419,14 @@ int main() {
                                          : std::to_string(alive) + " players to the flop";
             DrawRectangleRounded({490, 360, 300, 40}, 1, 12, {0, 0, 0, 150});
             text(bold, msg, {640, 380}, 20, WHITE);
+        }
+
+        DrawTextEx(font, "Click a player to see their range  |  H: your range", {16, H - 26}, 14, 0, {110, 114, 122, 255});
+        if (view >= 0) {
+            const Decision& d = log[view];
+            bool mine = d.pos == hero;
+            rangePanel(strat, d, SEAT_NAME[seatOf(d.pos, btn)], mine ? pf::bucket(hand->cards[hero][0], hand->cards[hero][1]) : -1,
+                       hand->done());
         }
 
         EndDrawing();

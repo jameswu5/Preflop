@@ -23,7 +23,8 @@ find_package(Threads REQUIRED)
 
 # All headless code (rules engine, cards, equity) lives in one library.
 add_library(trainer src/trainer/game.cpp src/solver/cards.cpp src/solver/equity.cpp
-    src/solver/utility.cpp)
+    src/solver/utility.cpp src/solver/strategy.cpp
+    src/solver/mccfr.cpp src/trainer/trainer.cpp)
 target_include_directories(trainer PUBLIC src)
 target_link_libraries(trainer PUBLIC pheval)
 
@@ -38,10 +39,21 @@ add_test(NAME equity_test COMMAND equity_test)
 add_executable(utility_test tests/utility_test.cpp)
 target_link_libraries(utility_test trainer)
 add_test(NAME utility_test COMMAND utility_test)
+add_executable(solver_test tests/solver_test.cpp)
+target_link_libraries(solver_test trainer)
+target_compile_definitions(solver_test PRIVATE DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+add_test(NAME solver_test COMMAND solver_test)
+add_executable(trainer_test tests/trainer_test.cpp)
+target_link_libraries(trainer_test trainer)
+target_compile_definitions(trainer_test PRIVATE DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+add_test(NAME trainer_test COMMAND trainer_test)
 
 add_executable(gen_equity src/tools/gen_equity.cpp)
 target_link_libraries(gen_equity trainer Threads::Threads)
 target_compile_definitions(gen_equity PRIVATE DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+add_executable(solve src/tools/solve.cpp)
+target_link_libraries(solve trainer)
+target_compile_definitions(solve PRIVATE DATA_DIR="${CMAKE_SOURCE_DIR}/data")
 
 set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(raylib

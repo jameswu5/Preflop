@@ -1,0 +1,139 @@
+#include "trainer/trainer.h"
+
+#include <algorithm>
+#include <cmath>
+#include <limits>
+
+#include "solver/cards.h"
+
+namespace pf {
+
+const char* spotName(SpotType t) {
+    static const char* names[] = {"Open", "vs open", "Squeeze", "vs 3-bet", "vs 4-bet+", "Any"};
+    return names[int(t)];
+}
+
+SpotType classify(const std::vector<Step>& path) {
+    int raises = 0, callers = 0;
+    for (const Step& st : path) {
+        if (st.act == Act::Raise) ++raises;
+        else if (st.act == Act::Call && raises == 1) ++callers;
+    }
+    if (raises == 0) return SpotType::Open;
+    if (raises == 1) return callers ? SpotType::Squeeze : SpotType::ThreeBet;
+    return raises == 2 ? SpotType::FourBet : SpotType::FiveBet;
+}
+
+static const std::array<float, 3>& handProbs(const Strategy& s, int node, const Holes& cards) {
+    const auto& c = cards[s.actor(node)];
+    return s.probs(node, bucket(c[0], c[1]));
+}
+
+// Samples the actor's action at `node`, applies it and moves `node` to the child.
+static Act step(const Strategy& s, Hand& h, int& node, std::mt19937& rng) {
+    const auto& p = handProbs(s, node, h.cards);
+    float u = std::uniform_real_distribution<float>(0, 1)(rng);
+    int a = -1;
+    for (int i = 0; i < 3; ++i) {
+        if (p[i] <= 0) continue;
+        a = i;  // if rounding leaves u >= 0 after the loop, the last action with p > 0 is taken
+        if ((u -= p[i]) < 0) break;
+    }
+    h.apply(Act(a));
+    node = s.child(node, Act(a));
+    return Act(a);
+}
+
+std::optional<Spot> deal(const Strategy& s, const SpotFilter& f, std::mt19937& rng, int tries) {
+    std::uniform_int_distribution<int> seat(0, NPOS - 1);
+    for (int t = 0; t < tries; ++t) {
+        int user = f.pos >= 0 ? f.pos : seat(rng);
+        Spot sp{Hand(rng, s.config()), user, s.root(), {}};
+        while (!sp.hand.done()) {
+            if (sp.hand.toAct() == user) {
+                sp.type = classify(sp.path);
+                if (f.type == SpotType::NSPOT || f.type == sp.type) return sp;
+            }
+            int node = sp.node;
+            sp.path.push_back({node, step(s, sp.hand, sp.node, rng)});
+        }
+    }
+    return std::nullopt;
+}
+
+double historyWeight(const Strategy& s, const Spot& sp, const Holes& cards) {
+    double w = 1;
+    for (const Step& st : sp.path)
+        if (s.actor(st.node) != sp.user && (w *= handProbs(s, st.node, cards)[int(st.act)]) == 0) break;
+    return w;
+}
+
+// User's payoff after taking `a` at the spot, everyone (user included) then following the strategy.
+static double playout(const Strategy& s, const Equity& e, Hand h, int node, int user, Act a,
+                      std::mt19937& rng, const RolloutConfig& rc) {
+    h.apply(a);
+    node = s.child(node, a);
+    while (!h.done() && !h.folded(user)) step(s, h, node, rng);
+    if (h.folded(user)) return -h.committed(user);
+    return utility(h, e, rng, rc.flopBoards, rc.rc)[user];
+}
+
+std::array<double, 3> rollout(const Strategy& s, const Equity& e, const Spot& sp, std::mt19937& rng,
+                              const RolloutConfig& rc) {
+    const auto& mine = sp.hand.cards[sp.user];
+    int deck[52], nd = 0;
+    for (int i = 0; i < 52; ++i)
+        if (i != cardIndex(mine[0]) && i != cardIndex(mine[1])) deck[nd++] = i;
+    auto legal = sp.hand.legal();
+
+    double wsum = 0;
+    std::array<double, 3> sum{};
+    Hand h = sp.hand;
+    for (int d = 0; d < rc.deals; ++d) {
+        for (int j = 0, p = 0; p < NPOS; ++p) {  // partial Fisher-Yates over the 50 cards
+            if (p == sp.user) continue;
+            for (int c = 0; c < 2; ++c, ++j) {
+                std::swap(deck[j], deck[j + std::uniform_int_distribution<int>(0, nd - 1 - j)(rng)]);
+                h.cards[p][c] = cardFromIndex(deck[j]);
+            }
+        }
+        double w = historyWeight(s, sp, h.cards);
+        if (w == 0) continue;
+        wsum += w;
+        for (Act a : legal) sum[int(a)] += w * playout(s, e, h, sp.node, sp.user, a, rng, rc);
+    }
+    std::array<double, 3> ev;
+    ev.fill(std::numeric_limits<double>::quiet_NaN());
+    if (wsum > 0)
+        for (Act a : legal) ev[int(a)] = sum[int(a)] / wsum;
+    return ev;
+}
+
+Feedback grade(const Strategy& s, const Spot& sp, const std::array<double, 3>& ev, Act choice,
+               const GradeConfig& g) {
+    double best = -std::numeric_limits<double>::infinity();
+    for (Act a : sp.hand.legal()) best = std::max(best, ev[int(a)]);
+    Feedback f{ev, handProbs(s, sp.node, sp.hand.cards), choice, best - ev[int(choice)], false};
+    f.correct = f.mix[int(choice)] >= g.minFreq || f.evLoss <= g.maxLoss;
+    return f;
+}
+
+void Stats::add(const Spot& sp, const Feedback& f) {
+    Cell& c = cell[int(sp.type)][sp.user];
+    ++c.n;
+    c.correct += f.correct;
+    c.evLoss += f.evLoss;
+}
+
+std::vector<std::pair<SpotType, int>> Stats::leaks() const {
+    std::vector<std::pair<SpotType, int>> out;
+    for (int t = 0; t < NSPOT; ++t)
+        for (int p = 0; p < NPOS; ++p)
+            if (cell[t][p].n) out.push_back({SpotType(t), p});
+    std::stable_sort(out.begin(), out.end(), [&](auto& a, auto& b) {
+        return cell[int(a.first)][a.second].evLoss > cell[int(b.first)][b.second].evLoss;
+    });
+    return out;
+}
+
+}  // namespace pf

@@ -15,7 +15,7 @@ double realization(const RealizationConfig& rc, bool lastToAct, Card a, Card b) 
     int hi = std::max(a.rank, b.rank), lo = std::min(a.rank, b.rank);
     double r = hi == lo ? rc.pair : a.suit == b.suit ? rc.suited : rc.offsuit;
     if (hi != lo) r -= rc.gap * std::min(hi - lo - 1, 4);
-    r -= rc.low * (12 - hi);
+    if (hi != lo && a.suit != b.suit) r -= rc.low * (12 - hi);  // pairs/suited realize via sets/draws
     return (lastToAct ? rc.ip : rc.oop) * std::max(r, 0.05);
 }
 

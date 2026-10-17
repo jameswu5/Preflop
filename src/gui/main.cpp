@@ -3,6 +3,7 @@
 // Usage: preflop [strategy file] [heads-up equity table]  (defaults: data/strategy_6max.bin, data/hu_equity.bin)
 #include "raylib.h"
 #include "solver/cards.h"
+#include "solver/range.h"
 #include "solver/strategy.h"
 #include "trainer/game.h"
 #include "trainer/trainer.h"
@@ -11,6 +12,8 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <future>
 #include <optional>
 #include <string>
@@ -133,8 +136,6 @@ constexpr Rectangle CLOSE_BTN = {PANEL.x + PANEL.width - 224, PANEL.y + PANEL.he
 constexpr float CELL = 42, GX = PANEL.x + 24, GY = PANEL.y + 88;
 constexpr Rectangle MENU = {290, 170, 700, 420};
 
-int combos(int b) { return b / 13 == b % 13 ? 6 : b / 13 < b % 13 ? 4 : 12; }
-
 // Immediate-mode button: draws, returns true on click.
 bool button(Rectangle r, const std::string& label, bool on = false, float size = 18) {
     bool hov = CheckCollisionPointRec(GetMousePosition(), r);
@@ -185,7 +186,7 @@ void feedback(const Decision& d, float x, float y) {
 
 // 13x13 strategy grid for one decision. reach = how often each class gets here (dimmed if never);
 // highlight = the user's bucket, -1 for bots (cards hidden).
-void rangePanel(const pf::Strategy& st, const Decision& d, const std::array<float, 169>& reach, const std::string& title,
+void rangePanel(const pf::Strategy& st, const Decision& d, const std::array<double, pf::NBUCKETS>& reach, const std::string& title,
                 int highlight, bool nextHand) {
     panelBg(PANEL);
     DrawTextEx(bold, title.c_str(), {GX, PANEL.y + 20}, 26, 0, WHITE);
@@ -196,7 +197,7 @@ void rangePanel(const pf::Strategy& st, const Decision& d, const std::array<floa
     for (int b = 0; b < pf::NBUCKETS; b++) {
         Rectangle c = {GX + b % 13 * CELL, GY + b / 13 * CELL, CELL - 2, CELL - 2};
         if (CheckCollisionPointRec(m, c)) hover = b;
-        bool reached = reach[b] >= 1e-3f;
+        bool reached = reach[b] >= 1e-3;
         auto& p = st.probs(d.node, b);
         float x = c.x;
         if (!reached) DrawRectangleRec(c, {38, 41, 48, 255});
@@ -232,7 +233,7 @@ void rangePanel(const pf::Strategy& st, const Decision& d, const std::array<floa
     std::array<float, 3> width{};
     float total = 0;
     for (int b = 0; b < pf::NBUCKETS; b++) {
-        float w = combos(b) * reach[b];
+        float w = pf::comboCount(b) * float(reach[b]);
         total += w;
         for (int a = 0; a < 3; a++) width[a] += w * st.probs(d.node, b)[a];
     }
@@ -304,6 +305,286 @@ bool statsPanel(const pf::Stats& st) {
     return button({MENU.x + MENU.width - 228, MENU.y + MENU.height - 72, 200, 48}, "Close  (Esc)");
 }
 
+// ---- Reference painter: enter reference charts by hand as ref/*.txt for the validate tool ----
+
+pf::Hand handAt(const pf::Strategy& st, const std::vector<pf::Act>& hist) {  // betting state after `hist`
+    std::mt19937 r(0);
+    pf::Hand h(r, st.config());
+    for (auto a : hist) h.apply(a);
+    return h;
+}
+
+std::string actLabel(const pf::Hand& h, pf::Act a) {  // "Fold", "Call 2.5", "Raise 8.8"
+    int p = h.toAct();
+    if (a == pf::Act::Fold) return "Fold";
+    return std::string(ACT_NAME[int(a)]) + " " +
+           fmt(a == pf::Act::Call ? std::min(h.currentBet(), h.committed(p) + h.stack(p)) : h.raiseTo());
+}
+
+std::string trim(std::string s) {
+    s.erase(0, s.find_first_not_of(" \t\r"));
+    s.erase(s.find_last_not_of(" \t\r") + 1);
+    return s;
+}
+
+// Reads a ref file: '#' lines are kept as comments, then "spot:", "raise:", "call:" (a trailing "# ..." is ignored).
+bool readRef(const std::string& path, std::string& spot, pf::RangeFreqs (&f)[3], std::string& comments, std::string& err) {
+    std::ifstream in(path);
+    if (!in) return err = "can't open", false;
+    bool hasSpot = false;
+    comments.clear();
+    for (auto& x : f) x.fill(0);
+    for (std::string line; std::getline(in, line);) {
+        if (line.starts_with('#')) {
+            comments += line + "\n";
+            continue;
+        }
+        line = trim(line.substr(0, line.find('#')));
+        if (line.empty()) continue;
+        auto c = line.find(':');
+        std::string k = trim(line.substr(0, c)), v = c == std::string::npos ? "" : trim(line.substr(c + 1));
+        if (k == "spot") spot = v, hasSpot = true;
+        else if (k != "raise" && k != "call") return err = "unknown line '" + line + "'", false;
+        else if (!pf::parseRange(v, f[k == "raise" ? 2 : 1], &err)) return err = k + ": " + err, false;
+    }
+    return hasSpot || (err = "no spot line", false);
+}
+
+struct Painter {
+    const pf::Strategy& st;
+    std::string dir;                  // the repo's ref/
+    std::vector<pf::Act> hist;        // the spot: action history from UTG
+    int node = 0;
+    pf::RangeFreqs freq[3]{};         // per pf::Act; fold is the remainder, freq[0] unused
+    std::array<double, pf::NBUCKETS> reach{};
+    int brush = 2;                    // action being painted: 1 call, 2 raise
+    float level = 1;                  // brush frequency
+    bool overlay = false;             // solved strategy strip under each cell
+    bool stroke = false, dirty = false;
+    std::string path, comments, status;  // path "" = not saving (unreadable file in the way)
+    std::vector<std::string> files;
+
+    static constexpr float PX = 24, PY = 136, PC = 44;  // grid origin and cell size
+
+    Painter(const pf::Strategy& s, std::string d) : st(s), dir(std::filesystem::weakly_canonical(d).string()) {
+        refresh();
+        go({});
+    }
+
+    bool legal(int a) const { return st.tree().legal[node] >> a & 1; }
+    std::string letters() const {
+        std::string s;
+        for (auto a : hist) s += "FCR"[int(a)];
+        return s;
+    }
+    std::string name(const std::string& p) const { return std::filesystem::path(p).filename().string(); }
+
+    void refresh() {
+        files.clear();
+        std::error_code ec;
+        for (auto& e : std::filesystem::directory_iterator(dir, ec))
+            if (e.path().extension() == ".txt") files.push_back(e.path().string());
+        std::sort(files.begin(), files.end());
+    }
+
+    void setSpot(const std::vector<pf::Act>& h) {
+        hist = h;
+        node = st.nodeFor(h);
+        reach = st.reach(h);
+        for (auto& x : freq) x.fill(0);
+        brush = legal(2) ? 2 : 1;
+        comments = "# painted in the preflop GUI\n";
+        path = dir + "/" + POS_NAME[st.actor(node)] + "_" + (h.empty() ? "open" : letters()) + ".txt";
+    }
+
+    bool load(const std::string& p) {
+        std::string spot, com, err;
+        pf::RangeFreqs f[3];
+        if (!readRef(p, spot, f, com, err)) return status = name(p) + ": " + err, false;
+        std::vector<pf::Act> h;
+        for (char c : spot) {
+            auto i = std::string("FCR").find(c);
+            if (i == std::string::npos) return status = name(p) + ": bad spot letter '" + c + "'", false;
+            h.push_back(pf::Act(i));
+        }
+        if (st.nodeFor(h) < 0) return status = name(p) + ": spot not in the tree", false;
+        setSpot(h);
+        std::copy(std::begin(f), std::end(f), std::begin(freq));
+        comments = com;
+        path = p;
+        status = "Editing " + name(p);
+        return true;
+    }
+
+    // Switches spot, opening the ref file for it if there is one.
+    void go(const std::vector<pf::Act>& h) {
+        setSpot(h);
+        for (auto& f : files) {
+            std::string spot, com, err;
+            pf::RangeFreqs tmp[3];
+            if (readRef(f, spot, tmp, com, err) && spot == letters() && load(f)) return;
+        }
+        std::error_code ec;
+        if (std::filesystem::exists(path, ec)) {  // never paint over a file we couldn't read
+            std::string spot, com, err;
+            pf::RangeFreqs tmp[3];
+            readRef(path, spot, tmp, com, err);
+            status = name(path) + " exists but can't be used (" + err + "); fix it by hand";
+            path.clear();
+        } else {
+            status = "New spot, saves to " + name(path);
+        }
+    }
+
+    // Autosaved after every stroke. Never deletes: an all-fold chart keeps empty lines (= 0%, a valid reference).
+    void save() {
+        if (path.empty()) return;
+        std::error_code ec;
+        std::filesystem::create_directories(dir, ec);
+        std::ofstream out(path);
+        out << comments << "spot: " << letters() << "\n";
+        for (int a : {2, 1})
+            if (legal(a)) out << (a == 2 ? "raise: " : "call: ") << pf::formatRange(freq[a]) << "\n";
+        status = out ? "Saved " + name(path) : "Could not write " + path;
+        refresh();
+    }
+
+    // One frame: input + drawing. Returns false to go back to the table.
+    bool frame() {
+        Vector2 m = GetMousePosition();
+        std::optional<std::vector<pf::Act>> to;
+        DrawRectangleGradientV(0, 0, W, H, {28, 31, 37, 255}, {12, 13, 16, 255});
+        DrawTextEx(bold, "Reference painter", {PX, 18}, 26, 0, WHITE);
+        DrawTextEx(font, status.c_str(), {PX + 250, 25}, 16, 0, path.empty() ? Color{230, 80, 70, 255} : GREY);
+
+        // spot: history and navigation
+        pf::Hand h = handAt(st, hist);
+        std::string spot;
+        {
+            pf::Hand g = handAt(st, {});
+            for (auto a : hist) spot += std::string(POS_NAME[g.toAct()]) + " " + actLabel(g, a) + ", ", g.apply(a);
+        }
+        spot += std::string(POS_NAME[h.toAct()]) + " to act";
+        DrawTextEx(font, spot.c_str(), {PX, 58}, 17, 0, {200, 204, 210, 255});
+        float x = PX;
+        if (button({x, 86, 80, 34}, "Root", false, 15) && !hist.empty()) to = std::vector<pf::Act>{};
+        x += 88;
+        if (button({x, 86, 80, 34}, "Back", false, 15) && !hist.empty()) to = std::vector<pf::Act>(hist.begin(), hist.end() - 1);
+        x += 100;
+        for (int a = 0; a < 3; a++) {
+            if (!legal(a) || st.child(node, pf::Act(a)) < 0) continue;  // terminal: no spot after it
+            std::string t = POS_NAME[h.toAct()] + std::string(" ") + actLabel(h, pf::Act(a)) + " >";
+            float w = MeasureTextEx(bold, t.c_str(), 15, 0).x + 28;
+            if (button({x, 86, w, 34}, t, false, 15)) to = hist, to->push_back(pf::Act(a));
+            x += w + 8;
+        }
+
+        // grid: left-drag paints the brush, right-drag erases the brush action
+        int hover = -1;
+        for (int b = 0; b < pf::NBUCKETS; b++) {
+            Rectangle c = {PX + b % 13 * PC, PY + b / 13 * PC, PC - 2, PC - 2};
+            if (CheckCollisionPointRec(m, c)) hover = b;
+        }
+        bool down = IsMouseButtonDown(MOUSE_BUTTON_LEFT) || IsMouseButtonDown(MOUSE_BUTTON_RIGHT);
+        if (hover >= 0 && (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || IsMouseButtonPressed(MOUSE_BUTTON_RIGHT))) stroke = true;
+        if (stroke && hover >= 0 && down && !path.empty()) {
+            float v = IsMouseButtonDown(MOUSE_BUTTON_LEFT) ? level : 0;
+            dirty |= freq[brush][hover] != v;
+            freq[brush][hover] = v;
+            freq[3 - brush][hover] = std::min(freq[3 - brush][hover], 1 - v);  // raise + call <= 1
+        }
+        if (!down) {
+            if (dirty) save();
+            stroke = dirty = false;
+        }
+        for (int b = 0; b < pf::NBUCKETS; b++) {
+            Rectangle c = {PX + b % 13 * PC, PY + b / 13 * PC, PC - 2, PC - 2};
+            float r = freq[2][b], k = freq[1][b], strip = overlay ? 9 : 0;
+            DrawRectangleRec({c.x, c.y, c.width, c.height - strip}, ACT_COL[0]);
+            DrawRectangleRec({c.x, c.y, c.width * r, c.height - strip}, ACT_COL[2]);
+            DrawRectangleRec({c.x + c.width * r, c.y, c.width * k, c.height - strip}, ACT_COL[1]);
+            if (overlay) {
+                Rectangle s = {c.x, c.y + c.height - strip, c.width, strip};
+                if (reach[b] < 1e-3) DrawRectangleRec(s, {38, 41, 48, 255});
+                else
+                    for (int a = 2; a >= 0; a--) {
+                        float w = c.width * st.probs(node, b)[a];
+                        DrawRectangleRec({s.x, s.y, w, s.height}, ColorBrightness(ACT_COL[a], -.35f));
+                        s.x += w;
+                    }
+            }
+            std::string n = pf::bucketName(b);
+            text(bold, n, {c.x + c.width / 2 + 1, c.y + (c.height - strip) / 2 + 1}, 14, {0, 0, 0, 120});
+            text(bold, n, {c.x + c.width / 2, c.y + (c.height - strip) / 2}, 14, WHITE);
+        }
+        if (hover >= 0) DrawRectangleLinesEx({PX + hover % 13 * PC - 2, PY + hover / 13 * PC - 2, PC + 2, PC + 2}, 3, WHITE);
+
+        // right column: brush, overlay, widths, hovered hand, files
+        float cx = PX + 13 * PC + 32, y = PY;
+        DrawTextEx(font, "Brush action  (R / C)", {cx, y}, 15, 0, GREY);
+        for (int a : {2, 1})
+            if (legal(a) && button({cx + (2 - a) * 128.f, y + 20, 120, 36}, ACT_NAME[a], brush == a, 16)) brush = a;
+        if (IsKeyPressed(KEY_R) && legal(2)) brush = 2;
+        if (IsKeyPressed(KEY_C) && legal(1)) brush = 1;
+        y += 72;
+        DrawTextEx(font, "Frequency  (1-5)", {cx, y}, 15, 0, GREY);
+        const float LV[] = {1, .75f, .5f, .25f, 0};
+        for (int i = 0; i < 5; i++) {
+            if (button({cx + i * 76.f, y + 20, 70, 36}, std::to_string(int(LV[i] * 100)) + "%", level == LV[i], 16)) level = LV[i];
+            if (IsKeyPressed(KeyboardKey(KEY_ONE + i))) level = LV[i];
+        }
+        y += 72;
+        if (button({cx, y, 200, 36}, overlay ? "Solver overlay: on (O)" : "Solver overlay: off (O)", overlay, 15) ||
+            IsKeyPressed(KEY_O))
+            overlay = !overlay;
+        y += 56;
+
+        // combo-weighted widths, as % of all 1326 combos (solver: reach-weighted)
+        DrawTextEx(font, overlay ? "Width        chart     solver" : "Width (% of combos)", {cx, y}, 15, 0, GREY);
+        y += 22;
+        for (int a = 2; a >= 0; a--) {
+            if (!legal(a)) continue;
+            double ref = 0, sol = 0;
+            for (int b = 0; b < pf::NBUCKETS; b++) {
+                ref += pf::comboCount(b) * (a ? freq[a][b] : 1 - freq[1][b] - freq[2][b]);
+                sol += pf::comboCount(b) * reach[b] * st.probs(node, b)[a];
+            }
+            char buf[64];
+            std::snprintf(buf, sizeof buf, overlay ? "%5.1f%%   %5.1f%%" : "%5.1f%%", 100 * ref / pf::NCOMBOS, 100 * sol / pf::NCOMBOS);
+            DrawRectangleRounded({cx, y + 3, 14, 14}, .3f, 4, ACT_COL[a]);
+            DrawTextEx(font, ACT_NAME[a], {cx + 22, y}, 18, 0, {200, 204, 210, 255});
+            DrawTextEx(bold, buf, {cx + 110, y}, 18, 0, WHITE);
+            y += 24;
+        }
+        y += 12;
+        if (hover >= 0) {
+            char buf[96];
+            std::snprintf(buf, sizeof buf, "%s   chart R %.0f%%  C %.0f%%", pf::bucketName(hover).c_str(), 100 * freq[2][hover],
+                          100 * freq[1][hover]);
+            DrawTextEx(bold, buf, {cx, y}, 18, 0, WHITE);
+            if (overlay) {
+                auto& p = st.probs(node, hover);
+                std::snprintf(buf, sizeof buf, "solver R %.0f%%  C %.0f%%  F %.0f%%%s", 100 * p[2], 100 * p[1], 100 * p[0],
+                              reach[hover] < 1e-3 ? "  (never here)" : "");
+                DrawTextEx(font, buf, {cx, y + 24}, 16, 0, {200, 204, 210, 255});
+            }
+        }
+        y += 60;
+        DrawTextEx(font, ("Files in " + name(dir) + "/  (click to open)").c_str(), {cx, y}, 15, 0, GREY);
+        y += 22;
+        for (size_t i = 0; i < files.size() && i < 12; i++) {
+            Rectangle r = {cx + (i % 2) * 210.f, y + (i / 2) * 30.f, 202, 26};
+            if (button(r, name(files[i]), files[i] == path, 14)) load(files[i]);
+        }
+
+        DrawTextEx(font, "Left-drag: paint   Right-drag: erase   Autosaves after each stroke   Fold = the rest",
+                   {PX, H - 30}, 14, 0, {110, 114, 122, 255});
+        bool back = button({W - 200, H - 52, 176, 36}, "Back to table (Esc)", false, 15) || IsKeyPressed(KEY_ESCAPE);
+        if (to && !stroke) go(*to);
+        return !back;
+    }
+};
+
 struct Button {
     Rectangle r;
     pf::Act act;
@@ -370,10 +651,10 @@ int main(int argc, char** argv) {
         if (!std::isnan(d.fb->evLoss)) stats.add(*d.sp, *d.fb);
     };
 
+    std::optional<pf::Act> next;  // bot's action, picked when its turn starts so the think time can depend on it
     auto startTurn = [&] {
         clock = 0;
-        // ponytail: flat think-time distribution with 8% tanks; per-spot timing if it ever matters
-        thinkLen = uni(0, 1) < .08 ? uni(2.5, 4) : uni(.3, 1.5);
+        next.reset();
     };
     auto newHand = [&] {
         for (auto& d : log) collect(d, true);
@@ -419,16 +700,27 @@ int main(int argc, char** argv) {
         hand->apply(a);
         startTurn();
     };
-    auto botAct = [&] {
-        if (replayAt < replay.size()) return act(replay[replayAt++], false);
+    auto botPick = [&] {
         const auto& c = hand->cards[hand->toAct()];
         const auto& p = strat.probs(node, pf::bucket(c[0], c[1]));
-        act(pf::Act(std::discrete_distribution<int>(p.begin(), p.end())(rng)), false);
+        next = replayAt < replay.size() ? replay[replayAt++] : pf::Act(std::discrete_distribution<int>(p.begin(), p.end())(rng));
+        // Human-like right-skewed think time: log-normal, median 1.3s, mostly 0.6-3s, capped like a time bank.
+        // Clear folds (strategy folds the hand ~always) are usually pre-folded, fast-fold style.
+        // Deliberately independent of hand strength/difficulty so timing gives no tells.
+        if (*next == pf::Act::Fold && p[0] > .99f && uni(0, 1) < .7) thinkLen = .1;
+        else thinkLen = std::clamp(std::lognormal_distribution<double>(std::log(1.3), .5)(rng), .3, 12.0);
     };
 
     newHand();
+    std::optional<Painter> painter;  // reference painter screen; the table is paused while it's open
 
     while (!WindowShouldClose()) {
+        if (painter) {
+            BeginDrawing();
+            if (!painter->frame()) painter.reset();
+            EndDrawing();
+            continue;
+        }
         int hero = posOf(HERO, btn);
         int turn = hand->toAct();
         Vector2 mouse = GetMousePosition();
@@ -452,6 +744,8 @@ int main(int argc, char** argv) {
             menu = 1;
         } else if (IsKeyPressed(KEY_S)) {
             menu = 2;
+        } else if (IsKeyPressed(KEY_E)) {
+            painter.emplace(strat, std::string(GetApplicationDirectory()) + "../ref");
         } else if (int s = click ? seatAt(mouse) : -1; s >= 0 && lastBy(posOf(s, btn)) >= 0) {
             view = lastBy(posOf(s, btn));
         } else if (IsKeyPressed(KEY_H) && lastBy(hero) >= 0) {
@@ -464,7 +758,8 @@ int main(int argc, char** argv) {
                 newHand();
             }
         } else if (turn != hero || replayAt < replay.size()) {
-            if (clock >= (hand->folded(hero) ? .2 : thinkLen)) botAct();  // no waiting once the user is out
+            if (!next) botPick();
+            if (clock >= (hand->folded(hero) ? .2 : thinkLen)) act(*next, false);  // no waiting once the user is out
         } else {
             float x = 1260, y = 712, bw = 150, bh = 64;
             auto legal = hand->legal();
@@ -586,21 +881,20 @@ int main(int argc, char** argv) {
         if (!menu && view < 0) {
             if (button({16, 16, 110, 34}, "Spots (P)", false, 15)) menu = 1;
             if (button({134, 16, 110, 34}, "Stats (S)", false, 15)) menu = 2;
+            if (button({252, 16, 130, 34}, "Painter (E)", false, 15))
+                painter.emplace(strat, std::string(GetApplicationDirectory()) + "../ref");
         }
         std::string drill = "Drill: " + std::string(pf::spotName(filter.type)) + ", " + POS_PICK[filter.pos + 1];
-        DrawTextEx(font, (drill + (notice.empty() ? "" : "   (" + notice + ")")).c_str(), {256, 25}, 15, 0, GREY);
+        DrawTextEx(font, (drill + (notice.empty() ? "" : "   (" + notice + ")")).c_str(), {394, 25}, 15, 0, GREY);
         DrawTextEx(font, "Click a player to see their range  |  H: your range", {16, H - 26}, 14, 0, {110, 114, 122, 255});
 
         if (view >= 0) {
             const Decision& dv = log[view];
-            std::array<float, 169> reach;  // how often each class takes this player's earlier actions
-            reach.fill(1);
-            for (int i = 0; i < view; i++)
-                if (log[i].pos == dv.pos)
-                    for (int b = 0; b < pf::NBUCKETS; b++) reach[b] *= strat.probs(log[i].node, b)[int(log[i].act)];
+            std::vector<pf::Act> hist;
+            for (int i = 0; i < view; i++) hist.push_back(log[i].act);
             std::string title = std::string(SEAT_NAME[seatOf(dv.pos, btn)]) + " - " + POS_NAME[dv.pos];
             if (dv.sp) title += "  (" + std::string(pf::spotName(dv.sp->type)) + ")";
-            rangePanel(strat, dv, reach, title, dv.pos == hero ? pf::bucket(hand->cards[hero][0], hand->cards[hero][1]) : -1,
+            rangePanel(strat, dv, strat.reach(hist), title, dv.pos == hero ? pf::bucket(hand->cards[hero][0], hand->cards[hero][1]) : -1,
                        hand->done());
         }
         if (menu == 1 && pickerPanel(filter)) menu = 0;

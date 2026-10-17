@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "solver/cards.h"
 #include "solver/utility.h"
 #include "trainer/game.h"
 
@@ -13,6 +14,9 @@ namespace pf {
 
 // Every betting history reachable from the start of a hand (UTG to act), built by walking Hand.
 // Node 0 is the root. Terminal states are not nodes: child() returns -1 for them.
+// "FFR" -> {Fold, Fold, Raise}; false on any letter other than F/C/R.
+bool parseHistory(const std::string& letters, std::vector<Act>& out);
+
 struct Tree {
     std::vector<int8_t> actor;                // seat to act at each node
     std::vector<uint8_t> legal;               // bit (1 << int(Act)) set if the action is legal
@@ -38,6 +42,10 @@ public:
     int child(int node, Act a) const { return tree_.next[node][int(a)]; }
     int actor(int node) const { return tree_.actor[node]; }
     int nodeFor(const std::vector<Act>& history) const;  // -1 if illegal or past a terminal
+    // For the player to act after `history`: per hand class, the probability that its own
+    // earlier actions on this path were taken (1 where it hasn't acted yet). Call only when
+    // nodeFor(history) >= 0.
+    std::array<double, NBUCKETS> reach(const std::vector<Act>& history) const;
 
     // P(Fold), P(Call), P(Raise) for a hand bucket (solver/cards.h) at a node; illegal actions are 0.
     const std::array<float, 3>& probs(int node, int bucket) const;

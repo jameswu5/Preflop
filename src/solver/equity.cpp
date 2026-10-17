@@ -57,7 +57,9 @@ void Equity::compute(const Holes& cards, const std::array<bool, NPOS>& live, std
 
     for (int k = 0; k < boards; ++k) {
         for (int j = 0; j < 5; ++j) {  // partial Fisher-Yates
-            std::swap(deck[j], deck[j + std::uniform_int_distribution<int>(0, nd - 1 - j)(rng)]);
+            // Lemire multiply-shift instead of uniform_int_distribution: one rng call, bias < 1e-8.
+            uint32_t pick = uint32_t((uint64_t(rng()) * uint32_t(nd - j)) >> 32);
+            std::swap(deck[j], deck[j + pick]);
             for (int i = 0; i < n; ++i) hand[i][2 + j] = deck[j];
         }
         int best = 0, winners = 0, score[NPOS];

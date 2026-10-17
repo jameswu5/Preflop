@@ -115,7 +115,7 @@ int main() {
         SolverConfig warm = sc;
         warm.realization.oop = 0.7;
         Solver w(pf10, warm, eq, 5);
-        assert(w.loadCheckpoint("solver_test.ck") && w.iterations() == 15000);  // only R differs: warm start
+        assert(w.loadCheckpoint("solver_test.ck") && w.iterations() == 0);  // only R differs: warm start, fresh average
         SolverConfig other = sc;
         other.flopBoards = 50;
         Solver d(pf10, other, eq, 5);
@@ -123,6 +123,14 @@ int main() {
         std::ofstream("solver_test.ck", std::ios::binary) << "junk";
         assert(!c.loadCheckpoint("solver_test.ck") && c.iterations() == 30000);
         std::remove("solver_test.ck");
+    }
+    {  // multithreaded: not bit-reproducible, but converges just as well
+        Solver s(pf10, sc, eq, 2);
+        s.run(1500000, 4);
+        assert(s.iterations() == 1500000);
+        double expl = pushFoldExploitability(s.average(), hu, 10);
+        std::printf("  push/fold 10bb, 4 threads: exploitability %.4f bb/hand\n", expl);
+        assert(expl < 0.003);
     }
     {  // converges toward Nash
         Solver s(pf10, sc, eq, 1);

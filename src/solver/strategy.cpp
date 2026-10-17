@@ -26,6 +26,15 @@ static int addNode(Tree& t, const Hand& h) {
     return id;
 }
 
+bool parseHistory(const std::string& letters, std::vector<Act>& out) {
+    out.clear();
+    for (char c : letters) {
+        if (c != 'F' && c != 'C' && c != 'R') return false;
+        out.push_back(c == 'F' ? Act::Fold : c == 'C' ? Act::Call : Act::Raise);
+    }
+    return true;
+}
+
 Tree::Tree(const Config& cfg) {
     std::mt19937 rng(0);  // cards don't affect the betting tree
     addNode(*this, Hand(rng, cfg));
@@ -45,6 +54,16 @@ int Strategy::nodeFor(const std::vector<Act>& history) const {
     for (Act a : history)
         if (n < 0 || (n = child(n, a)) < 0) return -1;
     return n;
+}
+
+std::array<double, NBUCKETS> Strategy::reach(const std::vector<Act>& history) const {
+    std::array<double, NBUCKETS> r;
+    r.fill(1);
+    int who = actor(nodeFor(history));
+    for (int i = 0, m = root(); i < int(history.size()); m = child(m, history[i++]))
+        if (actor(m) == who)
+            for (int b = 0; b < NBUCKETS; ++b) r[b] *= probs(m, b)[int(history[i])];
+    return r;
 }
 
 const std::array<float, 3>& Strategy::probs(int node, int bucket) const { return p_[size_t(node) * NBUCKETS + bucket]; }

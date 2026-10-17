@@ -1,5 +1,6 @@
 #pragma once
-// External-sampling MCCFR over the preflop tree (docs/solver.md), single-threaded and deterministic.
+// External-sampling MCCFR over the preflop tree (docs/solver.md). Deterministic for a fixed seed
+// with one thread; with more, threads share the tables Hogwild-style (relaxed atomics).
 #include <random>
 #include <string>
 #include <vector>
@@ -22,7 +23,9 @@ public:
     // `eq` must outlive the solver; load its HU table first for exact heads-up equity.
     Solver(const Config& cfg, const SolverConfig& sc, const Equity& eq, uint32_t seed);
 
-    void run(long iterations);
+    // threads > 1 runs iterations in parallel blocks that end on discount boundaries; each block's
+    // threads are seeded from the solver's RNG. Faster, but results vary run to run.
+    void run(long iterations, int threads = 1);
     long iterations() const { return t_; }
     const Tree& tree() const { return tree_; }
 
@@ -31,13 +34,19 @@ public:
 
     // Full solver state (tables, iteration, RNG), so resuming continues exactly where it stopped.
     // load fails (state unchanged) if the file is malformed or was made with a different Config /
-    // SolverConfig. A different RealizationConfig is allowed: warm-starting a tuning run.
+    // SolverConfig. A different RealizationConfig is allowed for warm-starting a tuning run: the
+    // regrets are kept, but the strategy sums and iteration count restart, so the average reflects
+    // only the new R.
     bool saveCheckpoint(const std::string& path) const;
+    // Forget the strategy sums and restart the iteration count; regrets are kept (warm start).
+    void resetAverage();
     bool loadCheckpoint(const std::string& path);
 
 private:
-    double traverse(const Hand& h, int node, int traverser);
-    std::array<float, 3> regretMatch(int node, int bucket) const;
+    double traverse(const Hand& h, int node, int traverser, std::mt19937& rng, bool shared);
+    std::array<float, 3> regretMatch(int node, int bucket, bool shared) const;
+    void iterate(long t, std::mt19937& rng, bool shared);
+    void discount(int threads);
 
     Config cfg_;
     SolverConfig sc_;

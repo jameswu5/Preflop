@@ -70,3 +70,6 @@ Testing/
 # Generated data (gen_equity etc.)
 data/*.bin
 data/*.ck
+
+# Reference charts (validation.md: personal comparison only, never ship)
+ref/

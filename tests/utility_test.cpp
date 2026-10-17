@@ -83,6 +83,8 @@ int main() {
         assert(near(realization(t, true, c(12, 0), c(11, 0)), 1.05));                // AKs: connected
         assert(near(realization(t, false, c(12, 0), c(9, 1)), 0.8 * (0.9 - 0.1)));   // AJo: 2 gaps, OOP
         assert(near(realization(t, true, c(5, 0), c(0, 1)), 0.9 - 0.2 - 0.14));      // 72o: gaps capped at 4, 7 below A
+        assert(near(realization(t, true, c(3, 2), c(2, 2)), 1.05));                  // 54s: no low penalty when suited
+        assert(near(realization(t, true, c(0, 2), c(0, 1)), 1.1));                   // 22: nor for pairs
         RealizationConfig harsh{1.0, 0.8, 1, 1, 0.1, 0.5, 0.5};
         assert(near(realization(harsh, true, c(5, 0), c(0, 1)), 0.05));             // floored
     }

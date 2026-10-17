@@ -16,6 +16,7 @@ int comboIndex(Card a, Card b);    // 0..1325, order of a and b doesn't matter
 // pairs on the diagonal, suited above it (row < col), offsuit below.
 int bucket(Card a, Card b);
 std::string bucketName(int b);     // "AA", "AKs", "T9o"
+inline int comboCount(int b) { return b / 13 == b % 13 ? 6 : b / 13 < b % 13 ? 4 : 12; }
 int bucketFromName(const std::string& name);  // -1 if not a valid name
 
 }  // namespace pf

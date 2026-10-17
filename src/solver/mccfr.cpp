@@ -1,10 +1,12 @@
 #include "solver/mccfr.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <sstream>
+#include <thread>
 
 #include "solver/cards.h"
 
@@ -14,13 +16,22 @@ Solver::Solver(const Config& cfg, const SolverConfig& sc, const Equity& eq, uint
     : cfg_(cfg), sc_(sc), eq_(eq), tree_(cfg), rng_(seed),
       regret_(size_t(tree_.size()) * NBUCKETS), stratSum_(regret_.size()) {}
 
-std::array<float, 3> Solver::regretMatch(int node, int bucket) const {
+// Table access: plain when single-threaded, relaxed atomics when threads share the tables.
+static float load(const float& x, bool shared) {
+    return shared ? std::atomic_ref<float>(const_cast<float&>(x)).load(std::memory_order_relaxed) : x;
+}
+static void add(float& x, float v, bool shared) {
+    if (shared) std::atomic_ref<float>(x).fetch_add(v, std::memory_order_relaxed);
+    else x += v;
+}
+
+std::array<float, 3> Solver::regretMatch(int node, int bucket, bool shared) const {
     const auto& r = regret_[size_t(node) * NBUCKETS + bucket];
     uint8_t legal = tree_.legal[node];
     std::array<float, 3> s{};
     float sum = 0;
     for (int a = 0; a < 3; ++a)
-        if (legal >> a & 1) sum += s[a] = std::max(r[a], 0.0f);
+        if (legal >> a & 1) sum += s[a] = std::max(load(r[a], shared), 0.0f);
     if (sum > 0) {
         for (float& x : s) x /= sum;
     } else {
@@ -30,29 +41,29 @@ std::array<float, 3> Solver::regretMatch(int node, int bucket) const {
     return s;
 }
 
-double Solver::traverse(const Hand& h, int node, int traverser) {
-    if (h.done()) return utility(h, eq_, rng_, sc_.flopBoards, sc_.realization)[traverser];
+double Solver::traverse(const Hand& h, int node, int traverser, std::mt19937& rng, bool shared) {
+    if (h.done()) return utility(h, eq_, rng, sc_.flopBoards, sc_.realization)[traverser];
     int p = tree_.actor[node];
     auto step = [&](Act a) {
         Hand c = h;
         c.apply(a);
-        return traverse(c, tree_.next[node][int(a)], traverser);
+        return traverse(c, tree_.next[node][int(a)], traverser, rng, shared);
     };
     if (p < sc_.rootFolds) return step(Act::Fold);
 
     int b = bucket(h.cards[p][0], h.cards[p][1]);
-    auto sigma = regretMatch(node, b);
+    auto sigma = regretMatch(node, b, shared);
     size_t i = size_t(node) * NBUCKETS + b;
     if (p == traverser) {
         double v[3] = {}, ev = 0;
         for (int a = 0; a < 3; ++a)
             if (tree_.legal[node] >> a & 1) ev += sigma[a] * (v[a] = step(Act(a)));
         for (int a = 0; a < 3; ++a)
-            if (tree_.legal[node] >> a & 1) regret_[i][a] += float(v[a] - ev);
+            if (tree_.legal[node] >> a & 1) add(regret_[i][a], float(v[a] - ev), shared);
         return ev;
     }
-    for (int a = 0; a < 3; ++a) stratSum_[i][a] += sigma[a];
-    float u = std::uniform_real_distribution<float>(0, 1)(rng_), acc = 0;
+    for (int a = 0; a < 3; ++a) add(stratSum_[i][a], sigma[a], shared);
+    float u = std::uniform_real_distribution<float>(0, 1)(rng), acc = 0;
     int pick = 0;
     for (int a = 0; a < 3; ++a)
         if (sigma[a] > 0) {
@@ -62,17 +73,44 @@ double Solver::traverse(const Hand& h, int node, int traverser) {
     return step(Act(pick));
 }
 
-void Solver::run(long iterations) {
-    int seats = NPOS - sc_.rootFolds;
+void Solver::iterate(long t, std::mt19937& rng, bool shared) {
+    Hand h(rng, cfg_);
+    traverse(h, 0, sc_.rootFolds + int(t % (NPOS - sc_.rootFolds)), rng, shared);
+}
+
+void Solver::discount(int threads) {
+    float k = float(t_ / sc_.discountEvery), d = k / (k + 1);
+    auto scale = [&](size_t from, size_t to) {
+        for (size_t i = from; i < to; ++i)
+            for (int a = 0; a < 3; ++a) regret_[i][a] *= d, stratSum_[i][a] *= d;
+    };
+    if (threads <= 1) return scale(0, regret_.size());
+    std::vector<std::thread> pool;
+    size_t per = (regret_.size() + threads - 1) / threads;
+    for (int w = 0; w < threads; ++w)
+        pool.emplace_back(scale, std::min(regret_.size(), w * per), std::min(regret_.size(), (w + 1) * per));
+    for (auto& th : pool) th.join();
+}
+
+void Solver::run(long iterations, int threads) {
+    bool disc = sc_.discountEvery > 0;
     for (long end = t_ + iterations; t_ < end;) {
-        ++t_;
-        Hand h(rng_, cfg_);
-        traverse(h, 0, sc_.rootFolds + int(t_ % seats));
-        if (sc_.discountEvery > 0 && t_ % sc_.discountEvery == 0) {
-            float k = float(t_ / sc_.discountEvery), d = k / (k + 1);
-            for (auto& r : regret_) for (float& x : r) x *= d;
-            for (auto& s : stratSum_) for (float& x : s) x *= d;
+        if (threads <= 1) {
+            iterate(++t_, rng_, false);
+        } else {
+            // One parallel block, cut at the next discount boundary so discounting stays serial.
+            long n = end - t_;
+            if (disc) n = std::min(n, sc_.discountEvery - t_ % sc_.discountEvery);
+            std::vector<std::thread> pool;
+            for (int w = 0; w < threads; ++w)
+                pool.emplace_back([this, n, threads, w, t0 = t_, seed = rng_()] {
+                    std::mt19937 rng(seed);
+                    for (long i = w; i < n; i += threads) iterate(t0 + 1 + i, rng, true);
+                });
+            for (auto& th : pool) th.join();
+            t_ += n;
         }
+        if (disc && t_ % sc_.discountEvery == 0) discount(threads);
     }
 }
 
@@ -97,6 +135,11 @@ static_assert(sizeof(Config) % sizeof(double) == 0 && sizeof(RealizationConfig) 
 
 template <class T> static void put(std::ostream& o, const T& x) { o.write(reinterpret_cast<const char*>(&x), sizeof x); }
 template <class T> static bool get(std::istream& i, T& x) { return bool(i.read(reinterpret_cast<char*>(&x), sizeof x)); }
+
+void Solver::resetAverage() {
+    t_ = 0;
+    std::fill(stratSum_.begin(), stratSum_.end(), std::array<float, 3>{});
+}
 
 bool Solver::saveCheckpoint(const std::string& path) const {
     std::string tmp = path + ".tmp";
@@ -125,6 +168,7 @@ bool Solver::loadCheckpoint(const std::string& path) {
     if (!in.read(magic, 4) || std::memcmp(magic, "PFCK", 4) || !get(in, version) || version != CK_VERSION ||
         !get(in, cfg) || !get(in, sc) || !get(in, t) || !get(in, rlen) || rlen > 1 << 16)
         return false;
+    bool newR = std::memcmp(&sc.realization, &sc_.realization, sizeof sc.realization) != 0;
     sc.realization = sc_.realization;  // R may differ: warm start
     if (std::memcmp(&cfg, &cfg_, sizeof cfg) || std::memcmp(&sc, &sc_, sizeof sc)) return false;
     std::string r(rlen, '\0');
@@ -135,6 +179,7 @@ bool Solver::loadCheckpoint(const std::string& path) {
         !in.read(reinterpret_cast<char*>(stratSum.data()), stratSum.size() * sizeof stratSum[0]) || in.peek() != EOF)
         return false;
     t_ = long(t), rng_ = rng, regret_ = std::move(regret), stratSum_ = std::move(stratSum);
+    if (newR) resetAverage();
     return true;
 }
 

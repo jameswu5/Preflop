@@ -129,7 +129,9 @@ int main() {
         std::array<double, 3> ev{0, -1, 0.5};
         Feedback f = grade(s, *sp, ev, C, {0.5, 0.1});
         assert(near(f.evLoss, 1.5) && !f.correct && near(f.mix[int(C)], 1 / 3.0, 1e-6));
-        assert(grade(s, *sp, ev, C, {0.3, 0.1}).correct);  // mixed often enough
+        assert(grade(s, *sp, ev, C, {0.3, 0.1, 2.0}).correct);  // mixed often enough, loss under the cap
+        assert(!grade(s, *sp, ev, C, {0.3, 0.1}).correct);      // mixed, but 1.5bb > the default 1bb cap
+        assert(!grade(s, *sp, {0, -20.8, 0}, C, {}).correct);   // the reported case: a 20.8bb loss in the mix
         assert(grade(s, *sp, ev, R, {0.5, 0.1}).correct);  // best action
 
         Stats st;

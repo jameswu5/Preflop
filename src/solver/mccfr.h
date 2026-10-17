@@ -39,8 +39,10 @@ public:
     // regrets are kept, but the strategy sums and iteration count restart, so the average reflects
     // only the new R.
     bool saveCheckpoint(const std::string& path) const;
-    // Forget the strategy sums and restart the iteration count; regrets are kept (warm start).
-    void resetAverage();
+    // Forget the strategy sums; regrets are kept (warm start). The iteration count restarts at
+    // `memoryBlocks` discount blocks, so after K more blocks the old regrets keep weight
+    // memoryBlocks / (memoryBlocks + K): 0 forgets them fastest, larger values keep them longer.
+    void resetAverage(long memoryBlocks = 0);
     void reseed(uint32_t seed) { rng_.seed(seed); }  // e.g. independent runs from one checkpoint
     bool loadCheckpoint(const std::string& path);
 
@@ -56,6 +58,7 @@ private:
     Tree tree_;
     std::mt19937 rng_;
     long t_ = 0;
+    long loadedT_ = 0;  // iteration count of the last loaded checkpoint, for resetAverage's memory
     std::vector<std::array<float, 3>> regret_, stratSum_;  // [node * 169 + bucket]
 };
 

@@ -69,9 +69,12 @@ struct RolloutConfig {
 std::array<double, 3> rollout(const Strategy& s, const Equity& e, const Spot& sp, std::mt19937& rng,
                               const RolloutConfig& rc = {});
 
+// Correct if evLoss <= maxLoss, or if the solved mix plays the choice at least minFreq of the time
+// and evLoss <= mixedLossCap (so rollout noise or model quirks can't pass a big loss as "mixed").
 struct GradeConfig {
-    double minFreq = 0.1;  // correct if the solved mix plays the choice at least this often...
-    double maxLoss = 0.1;  // ...or its EV loss in bb is at most this
+    double minFreq = 0.1;       // the choice counts as part of the solved mix at this frequency
+    double maxLoss = 0.1;       // EV loss in bb that is always fine
+    double mixedLossCap = 1.0;  // largest EV loss in bb a mixed choice may still have
 };
 
 struct Feedback {

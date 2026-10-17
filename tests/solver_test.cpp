@@ -117,6 +117,8 @@ int main() {
         warm.realization.oop += 0.1;
         Solver w(pf10, warm, eq, 5);
         assert(w.loadCheckpoint("solver_test.ck") && w.iterations() == 0);  // only R differs: warm start, fresh average
+        w.resetAverage(1);  // keep one discount block of memory: count restarts at discountEvery
+        assert(w.iterations() == warm.discountEvery);
         SolverConfig boards = sc;
         boards.flopBoards = 50;
         Solver k(pf10, boards, eq, 5);

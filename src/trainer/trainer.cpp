@@ -116,7 +116,7 @@ Feedback grade(const Strategy& s, const Spot& sp, const std::array<double, 3>& e
     double best = -std::numeric_limits<double>::infinity();
     for (Act a : sp.hand.legal()) best = std::max(best, ev[int(a)]);
     Feedback f{ev, handProbs(s, sp.node, sp.hand.cards), choice, best - ev[int(choice)], false};
-    f.correct = f.mix[int(choice)] >= g.minFreq || f.evLoss <= g.maxLoss;
+    f.correct = f.evLoss <= g.maxLoss || (f.mix[int(choice)] >= g.minFreq && f.evLoss <= g.mixedLossCap);
     return f;
 }
 

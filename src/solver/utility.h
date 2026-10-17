@@ -27,7 +27,7 @@ struct RealizationConfig {
     double dom = 0.1;          // per point of domination() when calling, not when the last raiser
     double low = 0.03;         // offsuit non-pairs: per rank the top card is below an ace
     double spr = 3;            // pot depth: SPR at which g = 1/2; 0 = depth-independent (g = 1)
-    double init = 0.2;         // R *= 1 + init for the last raiser
+    double init = 0.25;        // R *= 1 + init for the last raiser
     double pairLow = 0.02;     // pairs: per rank below aces (overcards), at any depth
 };
 

@@ -12,6 +12,8 @@
 //   --r key=val  realization factor (ip oop flush conn set dom low spr init pairLow, utility.h), repeatable
 //   --report     print the validation.md sanity metrics
 //   --reset-average  after resuming, restart the strategy average (regrets kept): warm start
+//   --memory B   with --reset-average: old regrets fade as B / (B + discount blocks since); default 0.
+//                With --reset-average, --iters counts the new iterations after the restart.
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -150,6 +152,7 @@ static double strategyChange(const Strategy& a, const Strategy& b, int rootFolds
 }
 
 int main(int argc, char** argv) {
+    long memory = 0;
     int seats = 6, threads = 1, boards = SolverConfig{}.flopBoards;
     long iters = 1000000, chunk = 0;
     uint32_t seed = 1;
@@ -179,6 +182,7 @@ int main(int argc, char** argv) {
         else if (a == "--boards") boards = std::atoi(v);
         else if (a == "--checkpoint") ckPath = v;
         else if (a == "--warm") warmPath = v;
+        else if (a == "--memory") memory = std::atol(v);
         else if (a == "--out") outPath = v;
         else if (a == "--show") shows.push_back(v);
         else if (a == "--r") {
@@ -211,7 +215,7 @@ int main(int argc, char** argv) {
     }
     if (!warmPath.empty() && !solver.loadCheckpoint(warmPath))
         return std::fprintf(stderr, "cannot warm-start from %s\n", warmPath.c_str()), 1;
-    if (resetAvg) solver.resetAverage();
+    if (resetAvg) solver.resetAverage(memory), iters += solver.iterations();  // --iters counts new iterations
     if (seedGiven) solver.reseed(seed);  // an explicit --seed overrides the checkpoint's RNG state
 
     Strategy prev = solver.average();

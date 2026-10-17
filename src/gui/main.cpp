@@ -163,7 +163,11 @@ void actRows(const std::array<float, 3>& p, float x, float y) {  // "Raise 33.3%
 
 // EV per action, the user's EV loss and verdict.
 void feedback(const Decision& d, float x, float y) {
-    DrawTextEx(font, "EV (bb)", {x, y}, 15, 0, GREY);
+    const pf::Config& cfg = d.sp->hand.config();  // EVs are net of rake (rollout -> utility)
+    char hdr[64];
+    if (cfg.rake > 0) std::snprintf(hdr, sizeof hdr, "EV (bb, net of %g%% rake, cap %s)", 100 * cfg.rake, fmt(cfg.rakeCap).c_str());
+    else std::snprintf(hdr, sizeof hdr, "EV (bb)   no rake");
+    DrawTextEx(font, hdr, {x, y}, 15, 0, GREY);
     if (!d.fb) {
         DrawTextEx(font, "Computing...", {x, y + 20}, 18, 0, {200, 204, 210, 255});
         return;
@@ -985,7 +989,9 @@ int main(int argc, char** argv) {
         DrawRectangleRounded({300, 220, 680, 280}, 1, 64, {30, 118, 82, 255});
         DrawRectangleRoundedLinesEx({196, 181, 888, 358}, 1, 64, 2, {255, 255, 255, 22});
         if (!hand->done()) text(bold, "PREFLOP", {640, 400}, 34, {255, 255, 255, 24});
-        text(bold, "Pot: " + fmt(hand->pot()), {640, 335}, 22, WHITE);
+        double raked = hand->done() ? pf::rake(*hand) : 0;  // no flop, no drop
+        text(bold, "Pot: " + fmt(hand->pot()) + (raked > 0 ? "   (rake " + fmt(raked) + ", " + fmt(hand->pot() - raked) + " after rake)" : ""),
+             {640, 335}, 22, WHITE);
 
         for (int s = 0; s < pf::NPOS; s++) {
             int p = posOf(s, btn);
@@ -1060,7 +1066,7 @@ int main(int argc, char** argv) {
             for (int p = 0; p < pf::NPOS; p++)
                 if (!hand->folded(p)) alive++, winner = p;
             std::string msg = alive == 1 ? std::string(SEAT_NAME[seatOf(winner, btn)]) + " wins " + fmt(hand->pot()) + " BB"
-                                         : std::to_string(alive) + " players to the flop";
+                         : std::to_string(alive) + (pf::allIn(*hand) ? " players all-in" : " players to the flop");
             DrawRectangleRounded({490, 360, 300, 40}, 1, 12, {0, 0, 0, 150});
             text(bold, msg, {640, 380}, 20, WHITE);
         }

@@ -136,8 +136,8 @@ static_assert(sizeof(Config) % sizeof(double) == 0 && sizeof(RealizationConfig) 
 template <class T> static void put(std::ostream& o, const T& x) { o.write(reinterpret_cast<const char*>(&x), sizeof x); }
 template <class T> static bool get(std::istream& i, T& x) { return bool(i.read(reinterpret_cast<char*>(&x), sizeof x)); }
 
-void Solver::resetAverage() {
-    t_ = 0;
+void Solver::resetAverage(long memoryBlocks) {
+    t_ = std::min(std::max(t_, loadedT_), memoryBlocks * std::max(sc_.discountEvery, 1L));
     std::fill(stratSum_.begin(), stratSum_.end(), std::array<float, 3>{});
 }
 
@@ -179,7 +179,7 @@ bool Solver::loadCheckpoint(const std::string& path) {
     if (!in.read(reinterpret_cast<char*>(regret.data()), regret.size() * sizeof regret[0]) ||
         !in.read(reinterpret_cast<char*>(stratSum.data()), stratSum.size() * sizeof stratSum[0]) || in.peek() != EOF)
         return false;
-    t_ = long(t), rng_ = rng, regret_ = std::move(regret), stratSum_ = std::move(stratSum);
+    t_ = loadedT_ = long(t), rng_ = rng, regret_ = std::move(regret), stratSum_ = std::move(stratSum);
     if (newR) resetAverage();
     return true;
 }

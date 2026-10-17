@@ -64,25 +64,26 @@ int main() {
         act(h, BB, {F, C, R}, C);
         assert(h.done() && near(h.pot(), 4 * 2.5 + 0.5));
     }
-    {  // ex 1: BTN 3-bets CO open (IP) = 8.75; opener may call, blinds fold/raise only
+    {  // ex 1: BTN 3-bets CO open (IP) = 8.75 -> 8.8; opener may call, blinds fold/raise only
         Hand h(rng);
         foldTo(h, CO);
         act(h, CO, {F, R}, R);
-        assert(near(h.raiseTo(), 8.75));
+        assert(h.raiseTo() == 8.8);
         act(h, BTN, {F, C, R}, R);
+        assert(h.stack(BTN) == 91.2);
         act(h, SB, {F, R}, F);
         act(h, BB, {F, R}, F);
         act(h, CO, {F, C, R}, C);
-        assert(h.done() && near(h.pot(), 2 * 8.75 + 1.5));
+        assert(h.done() && h.pot() == 19.1);
     }
-    {  // ex 2: BB 3-bets BTN open (OOP) = 11.25; 4-bet IP 2.3x; 5-bet all-in; call/fold vs all-in
+    {  // ex 2: BB 3-bets BTN open (OOP) = 11.25 -> 11.3; 4-bet IP 2.3x; 5-bet all-in; call/fold vs all-in
         Hand h(rng);
         foldTo(h, BTN);
         act(h, BTN, {F, R}, R);
         act(h, SB, {F, C, R}, F);
-        assert(near(h.raiseTo(), 11.25));
+        assert(h.raiseTo() == 11.3);
         act(h, BB, {F, C, R}, R);
-        assert(near(h.raiseTo(), 2.3 * 11.25));
+        assert(h.raiseTo() == 26);  // 2.3 * 11.3 = 25.99
         act(h, BTN, {F, C, R}, R);
         assert(near(h.raiseTo(), 100));
         act(h, BB, {F, C, R}, R);
@@ -90,34 +91,34 @@ int main() {
         act(h, BTN, {F, C}, C);
         assert(h.done() && near(h.pot(), 200.5));
     }
-    {  // ex 3: BTN squeezes HJ open + CO call (IP) = 11.25; cold caller may only fold or 4-bet
+    {  // ex 3: BTN squeezes HJ open + CO call (IP) = 11.25 -> 11.3; cold caller may only fold or 4-bet
         Hand h(rng);
         foldTo(h, HJ);
         act(h, HJ, {F, R}, R);
         act(h, CO, {F, C, R}, C);
-        assert(near(h.raiseTo(), 11.25));
+        assert(h.raiseTo() == 11.3);
         act(h, BTN, {F, C, R}, R);
         act(h, SB, {F, R}, F);
         act(h, BB, {F, R}, F);
         act(h, HJ, {F, C, R}, F);
-        assert(near(h.raiseTo(), 2.75 * 11.25));  // CO is OOP to BTN
+        assert(h.raiseTo() == 31.1);  // CO is OOP to BTN: 2.75 * 11.3 = 31.075
         act(h, CO, {F, R}, R);
         act(h, BTN, {F, C, R}, C);
         assert(h.done());
     }
-    {  // ex 4: BB squeezes CO open + BTN call + SB overcall (OOP) = 16.25
+    {  // ex 4: BB squeezes CO open + BTN call + SB overcall (OOP) = 16.25 -> 16.3
         Hand h(rng);
         foldTo(h, CO);
         act(h, CO, {F, R}, R);
         act(h, BTN, {F, C, R}, C);
         act(h, SB, {F, C, R}, C);
-        assert(near(h.raiseTo(), 16.25));
+        assert(h.raiseTo() == 16.3);
         act(h, BB, {F, C, R}, R);
         act(h, CO, {F, C, R}, F);
         act(h, BTN, {F, R}, F);
         assert(!h.done());
         act(h, SB, {F, R}, F);
-        assert(h.done() && near(h.pot(), 16.25 + 3 * 2.5));
+        assert(h.done() && h.pot() == 23.8);
     }
     {  // ex 5: BB 3-bets SB open (3bb, IP) = 10.5; SB 4-bets OOP 2.75x
         Hand h(rng);
@@ -126,7 +127,7 @@ int main() {
         act(h, SB, {F, R}, R);
         assert(near(h.raiseTo(), 10.5));
         act(h, BB, {F, C, R}, R);
-        assert(near(h.raiseTo(), 2.75 * 10.5));
+        assert(h.raiseTo() == 28.9);  // 2.75 * 10.5 = 28.875
         act(h, SB, {F, C, R}, R);
         act(h, BB, {F, C, R}, F);
         assert(h.done());
@@ -134,10 +135,11 @@ int main() {
     {  // cold 4-bet, cold 5-bet shove, multiway call/fold vs all-in
         Hand h(rng);
         act(h, UTG, {F, R}, R);
-        assert(near(h.raiseTo(), 8.75));
+        assert(h.raiseTo() == 8.8);
         act(h, HJ, {F, C, R}, R);
-        assert(near(h.raiseTo(), 2.3 * 8.75));
+        assert(h.raiseTo() == 20.2);  // 2.3 * 8.8 = 20.24
         act(h, CO, {F, R}, R);
+        assert(h.committed(CO) == 20.2 && h.stack(CO) == 79.8);
         act(h, BTN, {F, R}, R);
         assert(near(h.committed(BTN), 100));
         act(h, SB, {F, C}, F);
@@ -146,15 +148,15 @@ int main() {
         act(h, HJ, {F, C}, F);
         assert(!h.done());
         act(h, CO, {F, C}, C);
-        assert(h.done() && near(h.pot(), 300 + 0.5 + 2.5 + 8.75));
+        assert(h.done() && h.pot() == 311.8);
     }
     {  // config file
         const char* path = "game_test.cfg";
         FILE* f = std::fopen(path, "w");
-        std::fputs("# reference setup\nopen = 2.2  # min-ish\nthreeBetOOP=5\n\n", f);
+        std::fputs("# reference setup\nopen = 2.2  # min-ish\nthreeBetOOP=5\ntick = 0.05\n\n", f);
         std::fclose(f);
         Config c = loadConfig(path);
-        assert(near(c.open, 2.2) && near(c.threeBetOOP, 5) && near(c.stack, 100));
+        assert(near(c.open, 2.2) && near(c.threeBetOOP, 5) && near(c.tick, 0.05) && near(c.stack, 100));
         f = std::fopen(path, "w");
         std::fputs("opne = 2\n", f);
         std::fclose(f);

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <fstream>
 #include <numeric>
 #include <stdexcept>
@@ -15,7 +16,7 @@ Config loadConfig(const std::string& path) {
         {"sb", &c.sb}, {"bb", &c.bb}, {"stack", &c.stack},
         {"open", &c.open}, {"sbOpen", &c.sbOpen},
         {"threeBetIP", &c.threeBetIP}, {"threeBetOOP", &c.threeBetOOP},
-        {"fourBetIP", &c.fourBetIP}, {"fourBetOOP", &c.fourBetOOP},
+        {"fourBetIP", &c.fourBetIP}, {"fourBetOOP", &c.fourBetOOP}, {"tick", &c.tick},
     };
     std::ifstream in(path);
     if (!in) throw std::runtime_error("cannot open config " + path);
@@ -43,6 +44,14 @@ Config loadConfig(const std::string& path) {
 // Postflop order: SB acts first, BTN last.
 static int postflopRank(int p) { return (p + 2) % NPOS; }
 
+// x * (1/tick) keeps exact halves exact (8.75 * 10 = 87.5); the epsilon catches products that
+// land just under a half (3.5 * 2.3 = 8.0499..). Dividing back gives the double nearest the tick.
+double Hand::snap(double x) const {
+    if (cfg_.tick <= 0) return x;
+    double inv = 1 / cfg_.tick;
+    return std::round(x * inv + 1e-6) / inv;
+}
+
 Hand::Hand(std::mt19937& rng, const Config& cfg) : cfg_(cfg) {
     std::array<uint8_t, 52> deck;
     std::iota(deck.begin(), deck.end(), 0);
@@ -60,8 +69,8 @@ bool Hand::done() const { return toAct_ < 0; }
 int Hand::toAct() const { return toAct_; }
 double Hand::currentBet() const { return *std::max_element(committed_.begin(), committed_.end()); }
 double Hand::committed(int pos) const { return committed_[pos]; }
-double Hand::stack(int pos) const { return cfg_.stack - committed_[pos]; }
-double Hand::pot() const { return std::accumulate(committed_.begin(), committed_.end(), 0.0); }
+double Hand::stack(int pos) const { return snap(cfg_.stack - committed_[pos]); }
+double Hand::pot() const { return snap(std::accumulate(committed_.begin(), committed_.end(), 0.0)); }
 bool Hand::folded(int pos) const { return folded_[pos]; }
 
 std::vector<Act> Hand::legal() const {
@@ -84,7 +93,7 @@ double Hand::raiseTo() const {
         to = (ip ? cfg_.threeBetIP : cfg_.threeBetOOP) * openSize_ + openCallers_ * openSize_;
     else if (raises_ == 2)
         to = (ip ? cfg_.fourBetIP : cfg_.fourBetOOP) * currentBet();
-    return std::min(to, cfg_.stack);
+    return std::min(snap(to), cfg_.stack);
 }
 
 void Hand::apply(Act a) {

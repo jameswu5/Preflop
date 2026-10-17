@@ -24,6 +24,7 @@ struct Config {
     double open = 2.5, sbOpen = 3.0;
     double threeBetIP = 3.5, threeBetOOP = 4.5;
     double fourBetIP = 2.3, fourBetOOP = 2.75;
+    double tick = 0.1;  // raise sizes round to this (0.1bb = 1 cent at 10NL); <= 0 disables
 };
 
 // Reads key=value lines (keys = Config field names, '#' starts a comment) over the defaults.
@@ -51,6 +52,7 @@ public:
 
 private:
     void advance();
+    double snap(double x) const;  // round to the nearest cfg_.tick
 
     Config cfg_;
     std::array<double, NPOS> committed_{};

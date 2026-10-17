@@ -13,16 +13,18 @@ Put all of these in one config struct, loadable from a config file. Do not hardc
 | Limping | None, including SB complete. Add later as a flag |
 | Cold calling | Allowed only while the pot holds a single open: players may call the open, and later players may overcall the open plus earlier callers. Once a 3-bet or larger is on the table, players who have not yet raised may only fold or raise. The original raiser facing a 3-bet may fold/call/raise |
 | Rake | Off in v1. Add later as a flag |
+| Tick | Every raise total rounds to the nearest 0.1bb (1 cent at 10NL), halves away from zero, capped at the stack |
 
 Actions per node are a subset of `{FOLD, CALL, RAISE}`, with the raise amount determined by the config and the current raise level. Because all stacks are equal, an all-in is always a plain showdown with no side pots.
 
-**Sizing examples** (2.5bb open):
+**Sizing examples** (2.5bb open, 0.1bb tick):
 
-- BTN 3-bets a CO open (IP): 3.5 × 2.5 = 8.75bb.
-- BB 3-bets a BTN open (OOP): 4.5 × 2.5 = 11.25bb.
-- BTN squeezes HJ open + CO call (IP): 3.5 × 2.5 + 2.5 = 11.25bb.
-- BB squeezes CO open + BTN call + SB call (OOP): 4.5 × 2.5 + 2 × 2.5 = 16.25bb.
+- BTN 3-bets a CO open (IP): 3.5 × 2.5 = 8.75 → 8.8bb.
+- BB 3-bets a BTN open (OOP): 4.5 × 2.5 = 11.25 → 11.3bb.
+- BTN squeezes HJ open + CO call (IP): 3.5 × 2.5 + 2.5 = 11.25 → 11.3bb.
+- BB squeezes CO open + BTN call + SB call (OOP): 4.5 × 2.5 + 2 × 2.5 = 16.25 → 16.3bb.
 - BB 3-bets an SB open (3bb, IP): 3.5 × 3 = 10.5bb.
+- CO 4-bets that 8.8bb BTN 3-bet (OOP): 2.75 × 8.8 = 24.2bb. 4-bets size off the rounded 3-bet actually on the table.
 
 **Known simplification:** a cold caller facing a squeeze may only fold or 4-bet, never call. Real solutions sometimes call squeezes, so expect squeeze-defense ranges to diverge from references here. Add a flag to allow it later if the gap matters.
 

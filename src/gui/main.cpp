@@ -133,8 +133,8 @@ int main() {
 
     auto startTurn = [&] {
         clock = 0;
-        // ponytail: flat think-time distribution with 10% tanks; per-spot timing if it ever matters
-        thinkLen = uni(0, 1) < .1 ? uni(4, 6) : uni(.5, 3);
+        // ponytail: flat think-time distribution with 8% tanks; per-spot timing if it ever matters
+        thinkLen = uni(0, 1) < .08 ? uni(2.5, 4) : uni(.3, 1.5);
     };
     auto newHand = [&] {
         btn = (btn + 1) % pf::NPOS;

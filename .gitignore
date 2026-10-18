@@ -74,3 +74,6 @@ data/*.ck
 # Reference charts (validation.md: personal comparison only, never ship)
 ref/
 __pycache__/
+
+# Python venv (numpy/scipy for src/tools/fit_realization.py)
+.venv/

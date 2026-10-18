@@ -11,7 +11,7 @@ src/solver/        # cards, hand eval wrapper, equity, terminal utility, tree + 
 src/trainer/       # rules engine (game.*) and headless trainer core (trainer.*)
 src/gui/           # raylib frontend
 src/tools/         # gen_equity, solve, validate, audit, sample_evs, gen_features (C++);
-                   # tune.py, fit_realization.py, scrape_ranges.py
+                   # tune.py, bo_tune.py, fit_realization.py, scrape_ranges.py
 data/              # generated, git-ignored: hu_equity.bin, 6max.ck checkpoint, strategy_6max.bin (Scratch),
                    # strategy_anchored.bin (Anchored)
 ref/               # reference charts, git-ignored (personal use only): gto_*.txt (the validation target),

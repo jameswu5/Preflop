@@ -71,4 +71,4 @@ build/preflop data/strategy_hu.bin
 
 ## Validation and tuning
 
-`build/solve --report` prints sanity metrics, `build/validate` compares a strategy with the reference charts in `ref/` (paint or edit them in the GUI with `E`), `build/audit` lists hands that continue while a clearly better hand of the same shape folds, and `src/tools/tune.py` fits the realization model to the charts with fresh solves. See [docs/validation.md](docs/validation.md#tools).
+`build/solve --report` prints sanity metrics, `build/validate` compares a strategy with the reference charts in `ref/` (paint or edit them in the GUI with `E`), `build/audit` lists hands that continue while a clearly better hand of the same shape folds, and `src/tools/tune.py` (coordinate search) and `src/tools/bo_tune.py` (Bayesian optimisation) fit the realization model to the charts with fresh solves. See [docs/validation.md](docs/validation.md#tools).

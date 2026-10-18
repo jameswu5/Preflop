@@ -77,3 +77,6 @@ __pycache__/
 
 # Python venv (numpy/scipy for src/tools/fit_realization.py)
 .venv/
+
+# Writeup scratch solves (writeup/scripts/make_data.sh)
+writeup/data/tmp/

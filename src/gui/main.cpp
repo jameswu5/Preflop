@@ -13,6 +13,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <future>
@@ -826,7 +827,13 @@ int main(int argc, char** argv) {
     font = loadFont("/System/Library/Fonts/Supplemental/Arial.ttf");
     bold = loadFont("/System/Library/Fonts/Supplemental/Arial Bold.ttf");
 
-    std::mt19937 rng{std::random_device{}()};
+    // PREFLOP_SHOTS set: autopilot for the writeup's screenshots. Deals vs-3-bet spots (fixed seed) until the
+    // user's hand is mixed, saves table.png at the decision, plays the solve's most frequent action, saves
+    // feedback.png (the feedback panel) and inspector.png in the working directory, then exits.
+    const bool shots = std::getenv("PREFLOP_SHOTS");
+    int shotStage = 0, shotFrames = 0;
+    bool atDecision = false;
+    std::mt19937 rng{shots ? 7u : std::random_device{}()};
     auto uni = [&](double a, double b) { return std::uniform_real_distribution<double>(a, b)(rng); };
 
     int btn = 0;
@@ -841,6 +848,7 @@ int main(int argc, char** argv) {
     int menu = 0;                 // 1 = spot picker, 2 = stats
     bool reviewed = false;        // the user's end-of-hand feedback already shown
     pf::SpotFilter filter;
+    if (shots) filter.type = pf::SpotType::FourBet;
     int pick = 0, mode = 0;            // modes[] index picked with T / used by the current hand (switches at newHand)
     const pf::Strategy* cur = &strat;  // modes[mode].st: bots, rollouts, grading, ranges
     pf::Stats stats[3];                // per mode
@@ -927,6 +935,7 @@ int main(int argc, char** argv) {
         // Deliberately independent of hand strength/difficulty so timing gives no tells.
         if (*next == pf::Act::Fold && p[0] > .99f && uni(0, 1) < .7) thinkLen = .1;
         else thinkLen = std::clamp(std::lognormal_distribution<double>(std::log(1.3), .5)(rng), .3, 12.0);
+        if (shots) thinkLen = .05;
     };
 
     newHand();
@@ -949,6 +958,11 @@ int main(int argc, char** argv) {
                 inspector->fromSpot(painter->hist);
             }
             EndMode2D();
+            if (shots && shotStage == 2 && ++shotFrames > 30) {
+                TakeScreenshot("inspector.png");
+                EndDrawing();
+                break;
+            }
             EndDrawing();
             continue;
         }
@@ -1021,6 +1035,12 @@ int main(int argc, char** argv) {
             }
             if (has(pf::Act::Fold))
                 buttons.push_back({{x -= bw, y, bw, bh}, pf::Act::Fold, "Fold", "", {150, 44, 50, 255}, KEY_F});
+            if (shots) {
+                const auto& p = cur->probs(node, pf::bucket(hand->cards[hero][0], hand->cards[hero][1]));
+                if (shotStage == 1) act(pf::Act(std::max_element(p.begin(), p.end()) - p.begin()), true), buttons.clear();
+                else if (*std::max_element(p.begin(), p.end()) > .85f) newHand(), buttons.clear();  // a mixed hand reads better
+                else atDecision = true;
+            }
             for (auto& b : buttons)
                 if (IsKeyPressed(b.key) || (click && CheckCollisionPointRec(mouse, b.r))) {
                     act(b.act, true);
@@ -1162,6 +1182,15 @@ int main(int argc, char** argv) {
         if (menu == 2 && statsPanel(stats[mode], ("Stats - " + modes[mode].name).c_str())) menu = 0;
 
         EndMode2D();
+        if (shots && shotStage == 0 && atDecision && ++shotFrames > 30) TakeScreenshot("table.png"), shotStage = 1, shotFrames = 0;
+        if (shots && shotStage == 1 && view >= 0 && log[view].fb && ++shotFrames > 30) {
+            TakeScreenshot("feedback.png");
+            std::vector<pf::Act> hist;
+            for (int i = 0; i < view; i++) hist.push_back(log[i].act);
+            inspector.emplace(strat);
+            inspector->fromSpot(hist);
+            shotStage = 2, shotFrames = 0;
+        }
         EndDrawing();
     }
     CloseWindow();

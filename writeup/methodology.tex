@@ -1,12 +1,216 @@
-% Chapter 3. Owner: conductor, except the fixed-strategy fit (diana).
+% Chapter 3. Owner: conductor, except the fixed-strategy fit (diana, methodology-fit.tex).
 \chapter{Methodology}\label{ch:method}
 
+This chapter turns the mathematics of \cref{ch:maths} into a working system. \Cref{fig:pipeline} shows the pipeline: an exact heads-up equity table is computed once; a solve from scratch produces the \emph{Scratch} strategy; its realization parameters are fitted to reference charts; a second solve with the charts locked produces the \emph{Anchored} strategy; and the trainer plays both.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[box/.style={rectangle,rounded corners=3pt,draw,thick,fill=white,align=center,font=\scriptsize,minimum height=9mm,text width=22mm},
+                    data/.style={rectangle,draw,fill=gray!10,align=center,font=\scriptsize,minimum height=7mm,text width=20mm},
+                    arr/.style={-{Stealth[length=2mm]},thick}]
+  \node[box] (eq) at (0,0) {\texttt{gen\_equity}\\exact heads-up table};
+  \node[box] (scr) at (3.4,0) {\texttt{solve}\\MCCFR from scratch};
+  \node[box] (tune) at (6.8,0) {\texttt{tune.py}\\fit $\theta$ to charts};
+  \node[box] (anc) at (10.2,0) {\texttt{solve --lock}\\charts frozen};
+  \node[data] (ref) at (8.5,1.9) {reference charts\\\cite{pokertrainer}};
+  \node[box] (tr) at (10.2,-2.2) {trainer\\bots, rollouts, grading};
+  \node[data] (s1) at (3.4,-2.2) {Scratch\\strategy};
+  \node[data] (s2) at (6.8,-2.2) {Anchored\\strategy};
+  \draw[arr] (eq) -- (scr);
+  \draw[arr] (scr) -- node[above,font=\tiny]{score} (tune);
+  \draw[arr] (tune) -- node[above,font=\tiny]{$\theta$} (anc);
+  \draw[arr] (tune.north) to[bend left=30] node[above,font=\tiny]{re-solve with $\theta$} (scr.north);
+  \draw[arr] (ref) -| (tune);
+  \draw[arr] (ref) -| (anc);
+  \draw[arr] (scr) -- (s1);
+  \draw[arr] (anc) |- (s2);
+  \draw[arr] (s1) to[bend right=15] (tr);
+  \draw[arr] (s2) -- (tr);
+\end{tikzpicture}
+\caption{The pipeline that produces the two shipped strategies. The tuning loop re-solves from scratch for every candidate $\theta$.}
+\label{fig:pipeline}
+\end{figure}
+
 \section{Encoding the game}\label{sec:encoding}
+
+\paragraph{Rules and tree.} All rules of \cref{sec:intro-game} live in one configuration structure (stack, blinds, raise multipliers, tick, rake, and whether a cold caller may call a squeeze), and a rules engine applies them to a hand state. The betting tree is built once by walking the engine from the empty history: each decision node stores the actor, a mask of legal actions and a child index per action, with $-1$ marking a terminal. Because all stacks are equal, an all-in is always a plain showdown with no side pots.
+
+\paragraph{Terminals.} Everything a terminal's payoff depends on, apart from the cards, is fixed by its history: each player's contribution $C_i$, the pot after rake, the stack-to-pot ratio $\spr$ at the flop, which players are live, who acts last postflop, who made the last raise, whether the pot was 3-bet or more, and whether an all-in was called. These are precomputed once per terminal edge, so the solver traverses the tree by node index and never touches the rules engine in its inner loop.
+
+\paragraph{Information sets and deals.} An information set is a pair (decision node, hand class), and strategies and regrets are stored per pair (\cref{sec:intro-abstractions}). Each iteration deals six real combos from one shuffled deck, so blockers shape the opponents' hands exactly, while the strategy lookup uses only the class. Smaller games are solved on the same tree by forcing the early seats to fold at the root: \texttt{--seats 2} gives SB versus BB, which we use as a correctness check in \cref{sec:res-pushfold}.
+
 \section{Equity computation}\label{sec:equity-impl}
+
+\paragraph{Heads-up: an exact table.} For two disjoint combos the equity is a sum over all $\binom{48}{5} = \num{1712304}$ boards (\cref{sec:equity-maths}). We precompute it for every ordered pair of disjoint combos. Matchups that differ only by a relabelling of suits, or by swapping the two sides, have equal (or complementary) equity, so each canonical matchup is evaluated once and the result is expanded into a $1326\times 1326$ table of 32-bit floats (\SI{6.7}{MB}). Lookups are then exact and free. One simplification is that the table ignores the cards of folded players; we return to this in \cref{sec:res-limitations}.
+
+\paragraph{Multiway: sampled boards.} With three or more players we draw $K = 100$ boards from the deck minus all twelve hole cards and average each player's share of the pot (\cref{sec:equity-maths}). This is the solver's hot loop, so the seven-card evaluator is specialised. Each card is given a 64-bit key that packs a base-5 digit for its rank and a 4-bit count for its suit. A seven-card hand's key is then the sum of its cards' keys, and a board's key is computed once and shared by every player. Hands without a flush are ranked by a table lookup on the two rank fields, built at start-up from PokerHandEvaluator \cite{phevaluator}; the rare flushes fall back to the library itself. The results are bit-identical to calling the library directly.
+
+\paragraph{All-ins.} A called all-in uses a single sampled board and pays the actual pot share on it. This estimator is unbiased for the expected payoff, and the noise averages out over iterations.
+
 \section{The realization model}\label{sec:realization}
+
+At a terminal where the flop would be dealt, player $i$ receives the share $s_i = \real_i \eq_i / \sum_{j} \real_j \eq_j$ of the pot after rake (\cref{eq:share}). This section defines the realization factor $\real_i > 0$. It is built from features of the hand, the player's \emph{role} and the depth of the pot. Fold equity and blockers are \emph{not} modelled here: the solver deals real cards and plays the preflop betting out exactly, so both are already accounted for, and a blocker term would count them twice.
+
+\paragraph{Depth.} With $\spr$ the stack behind divided by the pot at the flop, and a parameter $\kappa \ge 0$, let
+\begin{equation}\label{eq:gamma}
+  \gamma = \frac{\spr}{\spr + \kappa} \in (0,1].
+\end{equation}
+$\gamma$ is close to $1$ in deep single-raised pots and falls in 3-bet and 4-bet pots; at $\spr = \kappa$ it equals $\tfrac12$, so $\kappa$ reads as the \enquote{half-life} SPR (\cref{fig:gamma}). Terms whose value comes from playing future streets are scaled by $\gamma$, so they fade when little money is left behind.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}
+\begin{axis}[width=0.62\linewidth,height=4.6cm,xmin=0,xmax=20,ymin=0,ymax=1,xlabel={stack-to-pot ratio $\spr$},ylabel={$\gamma$},
+             legend pos=south east,legend style={font=\scriptsize},tick label style={font=\scriptsize},label style={font=\small},
+             extra x ticks={0.5,4,13},extra x tick labels={},extra x tick style={grid=major,grid style={dashed,gray!50}}]
+  \addplot[domain=0:20,samples=200,thick,raisecol] {x/(x+1.525)};
+  \addlegendentry{$\kappa = 1.525$ (adopted)}
+  \addplot[domain=0:20,samples=200,thick,dashed,gray] {x/(x+3)};
+  \addlegendentry{$\kappa = 3$ (previous fit)}
+\end{axis}
+\end{tikzpicture}
+\caption{The depth fade $\gamma(\spr)$. Dashed grid lines mark typical flop SPRs: about $13$ in a single-raised pot, $4$ in a 3-bet pot and below $1$ in a 4-bet pot.}
+\label{fig:gamma}
+\end{figure}
+
+\paragraph{Roles.} Call player $i$ an \emph{out-of-position caller} if $i$ neither acts last postflop among the live players nor made the last raise, so has neither position nor initiative, and an \emph{in-position caller} if $i$ acts last but did not make the last raise. Call the pot \emph{re-raised} ($\1_{\mathrm{rr}} = 1$) if it was 3-bet or more; this is read from the betting history, not from $\spr$. The position factor is
+\begin{equation}\label{eq:posfactor}
+  \mathrm{pos}_i = \begin{cases} \alpha_{\mathrm{ip}}\,\chi_i & \text{$i$ acts last postflop,}\\ 1 - (1-\alpha_{\mathrm{oop}})\,\gamma'_i & \text{otherwise,}\end{cases}
+\end{equation}
+where $\chi_i = \chi$ for an in-position caller in a re-raised pot and $1$ otherwise, and $\gamma'_i = \xi\gamma + (1-\xi)$ for an out-of-position caller and $\gamma$ otherwise. The out-of-position penalty $1-\alpha_{\mathrm{oop}}$ shrinks with depth, since with little behind there is little to be outplayed on; $\xi \in [0,1]$ controls how much of that shrink an out-of-position caller gets. $\chi$ captures that calling a 3-bet in position, with a capped range into a small SPR against the aggressor's initiative, is worth less than position in a single-raised pot.
+
+\paragraph{Hand features.} For a hand with ranks $r_1 \ge r_2$ (2 is $0$, A is $12$):
+\begin{itemize}
+  \item $\mathrm{st}(r_1,r_2)$, the \emph{connectivity}: the number of five-card straights, from the wheel A-2-3-4-5 (the ace playing low) up to T-J-Q-K-A, that contain both ranks; $0$ for pairs. For example $\mathrm{st} = 4$ for 98, $2$ for KQ, $1$ for AK and A5, and $0$ for K4.
+  \item $\mathrm{dom}(r_1,r_2)$, the \emph{domination}: for offsuit non-pairs with $r_1 \ge \mathrm{T}$, $\min(r_1 - 1 - r_2,\, 4)$, else $0$. It measures how often the hand makes top pair with a weak kicker against better versions of itself: KQo has $0$, KJo $1$, AJo $2$, and K6o is capped at $4$.
+  \item Indicators $\1_{\mathrm{suited}}$, $\1_{\mathrm{pair}}$, $\1_{\mathrm{off}}$ (offsuit non-pair) and $\1_{\mathrm{raiser}}$ ($i$ made the last raise).
+\end{itemize}
+The hand factor is
+\begin{equation}\label{eq:handfactor}
+\begin{aligned}
+  H_i = 1 &+ \big(\phi\,\1_{\mathrm{suited}} + \eta\,\mathrm{st}(r_1,r_2)\,\gamma + \varsigma\,\1_{\mathrm{pair}}\,\gamma\big)\,\psi_i
+        - (\delta + \delta_{\mathrm{rr}}\1_{\mathrm{rr}})\,\mathrm{dom}(r_1,r_2)\,(1-\1_{\mathrm{raiser}}) \\
+        &- \lambda\,(12 - r_1)\,\1_{\mathrm{off}} - \beta\,(12 - r_1)\,\1_{\mathrm{pair}},
+\end{aligned}
+\end{equation}
+with $\psi_i = \psi$ for an out-of-position caller and $1$ otherwise, and finally
+\begin{equation}\label{eq:realization}
+  \real_i = \max\big(\mathrm{pos}_i \cdot H_i \cdot (1 + \iota\,\1_{\mathrm{raiser}}),\ 0.05\big).
+\end{equation}
+The floor keeps every factor positive, so the denominator of the share never vanishes.
+
+\begin{table}[ht]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}llX@{}}
+\toprule
+Symbol & Code name & Role and rationale \\
+\midrule
+$\alpha_{\mathrm{oop}}$ & \texttt{oop} & position factor out of position ($\alpha_{\mathrm{ip}} = 1$ fixes the scale) \\
+$\phi$ & \texttt{flush} & suited hands make flushes: a bonus at any depth \\
+$\eta$ & \texttt{conn} & per straight using both cards, scaled by $\gamma$: straights pay off only with money behind \\
+$\varsigma$ & \texttt{set} & pairs make sets (\enquote{set mining}), scaled by $\gamma$ \\
+$\delta$ & \texttt{dom} & per point of domination, for callers only: a dominated caller meets the hands that crush it \\
+$\delta_{\mathrm{rr}}$ & \texttt{domPot} & extra domination penalty in re-raised pots, where the raiser's range is narrower \\
+$\lambda$ & \texttt{low} & offsuit non-pairs, per rank the top card sits below an ace \\
+$\beta$ & \texttt{pairLow} & pairs, per rank below aces: overcards come on most flops \\
+$\kappa$ & \texttt{spr} & half-life SPR of the depth fade $\gamma$ \\
+$\iota$ & \texttt{init} & bonus for the last aggressor (initiative) \\
+$\psi$ & \texttt{oopCall} & scales the playability bonuses of out-of-position callers \\
+$\xi$ & \texttt{callerShrink} & how much of the depth shrink of the position penalty an out-of-position caller gets \\
+$\chi$ & \texttt{ipCall} & scales position for in-position callers in re-raised pots \\
+\bottomrule
+\end{tabularx}
+\caption{The realization parameters $\theta$. Fitted values are in \cref{app:params}.}
+\label{tab:params}
+\end{table}
+
+\paragraph{Why this shape.} The structure is chosen so that the solver produces \emph{polarised} re-raising ranges, as real solvers do. Hands that realise badly when calling, such as dominated offsuit broadways, prefer to raise or fold. Hands whose value is postflop playability, such as suited aces, suited connectors and small pairs, get that value in deep pots, which mostly means calling. Suited wheel aces like A5s keep their straight and flush terms even as the aggressor, which makes them natural bluffs. An earlier model, with $\real$ a function of position and hand class only and shrunk towards $1$ in shallow pots, barely depended on role and produced linear 3-betting ranges: small pairs looked like good 3-bets and A5s lost its edge. \Cref{fig:real-grids} shows the resulting factors for four roles.
+
+\begin{figure}[ht]
+\centering
+\IfFileExists{figures/gen/realization_grids.tex}{\input{figures/gen/realization_grids.tex}}{\fbox{\parbox{0.9\linewidth}{\centering realization heat-grids (generated)}}}
+\caption{The realization factor $\real$ for every hand class under the adopted parameters, in four roles. Each grid is the $13\times 13$ class grid: pairs on the diagonal, suited hands above it, offsuit below.}
+\label{fig:real-grids}
+\end{figure}
+
+\paragraph{Neutral setting.} With $\phi = \eta = \varsigma = \delta = \delta_{\mathrm{rr}} = \lambda = \beta = \iota = 0$, $\kappa = 0$ and $\psi = \xi = \chi = 1$, every $H_i = 1$ and $\real_i \in \{1, \alpha_{\mathrm{oop}}\}$: a position-only model. We use it as a baseline in \cref{sec:res-charts}.
+
 \section{The solver}\label{sec:solver}
+
+The solver implements external-sampling MCCFR (\cref{alg:es-mccfr}) with linear averaging applied a block at a time (\cref{prop:linear-blocks}). The traverser cycles through the seats, the deal and every non-traverser action are sampled from their true probabilities, and the traverser enumerates its actions.
+
+\paragraph{Data layout.} Regrets and strategy sums are flat arrays of single-precision floats of shape $[\text{nodes}][169][3]$, two tables of about \SI{15}{MB} each. The tree is a few levels deep, so the traversal is a plain recursion over node indices, and each terminal's payoff inputs are read from the precomputed table of \cref{sec:encoding}.
+
+\paragraph{Lazy linear weighting.} Linear CFR multiplies both tables by $k/(k+1)$ after every block of $N = \num{10000}$ iterations, which gives block $j$ a weight proportional to $j$. Rather than sweep the tables, we add each increment of block $j$ multiplied by $j$. The tables then hold the discounted sums times a common factor, and regret matching and the normalised average are both invariant to such a factor (\cref{prop:linear-blocks}), so the strategies are identical up to rounding and no pass over the tables is ever needed.
+
+\paragraph{Threads.} Iterations run in parallel in the style of Hogwild! \cite{recht2011}: all threads share the two tables and update them with relaxed atomic additions, without locks. Each thread has its own random number generator, seeded from the solver's. Because the lazy weights need no synchronised discount pass, threads never wait for each other. With one thread a run is bit-reproducible for a fixed seed; with more it is not, which is why our comparisons always use several seeds.
+
+\paragraph{Average strategy.} The output strategy is the strategy sum normalised per information set. Some information sets are reached only through their owner's own enumeration, after an action that player never takes, and accumulate no strategy sum; there we output the current regret-matched strategy, which is uniform only if the set was never reached. This matters for the trainer, whose bots must respond sensibly when the user deviates.
+
+\paragraph{Checkpoints.} The full state (configuration, iteration count, random state and both tables) is written after every chunk of iterations, to a temporary file that is then renamed, so a crash never leaves a half-written file. A checkpoint made under different rules is refused. One made under different realization parameters is accepted as a \emph{warm start}: the regrets are kept and the strategy sums and iteration count restart.
+
 \section{Two solves: Scratch and Anchored}\label{sec:two-solves}
+
+\paragraph{Scratch} is MCCFR from scratch over the whole tree with the fitted parameters, $3\times 10^8$ iterations. It is the strategy we compare with the reference charts.
+
+\paragraph{Anchored} freezes the reference charts. At every (spot, class) pair a chart covers, the solver plays the chart's probabilities, both when sampling and when the actor is the traverser, and never updates the strategy sum, so the output keeps the chart exactly. Everything else, notably the squeezes, cold 4-bets and overcalls that the charts do not cover, is solved as usual and so becomes a best response to players who follow the charts. Anchored is warm-started from the Scratch checkpoint. Otherwise, after an action a chart never takes (a call in a 3-bet-or-fold chart, say), the players behind reach that spot only when the locked player deviates, which happens only while the locked player is the traverser, so they would never accumulate regret there and would stay uniform.
+
+\paragraph{The lock report.} Regrets at locked entries are still accumulated, though never played. At the end of an Anchored solve, the mean regret of the best action against the chart's mix measures how much the chart gives up, in our model, against everything else. Summed over a spot's classes and ranked, these \enquote{lock reports} point to where the model and the charts disagree most (\cref{sec:res-disagree}).
+
 \section{Reference charts and the distance metric}\label{sec:reference}
+
+\paragraph{Source.} Our reference is the publicly available range viewer of PokerTrainer.se \cite{pokertrainer}, which publishes GTO charts, and a second \enquote{PTO} set adapted to typical opponents, for six-max $100\bb$ cash games with rake. Both sets cover the same $65$ spots: $5$ opens, $15$ responses to an open, $15$ responses to a 3-bet, $15$ to a 4-bet and $15$ to a 5-bet all-in. The charts are mixed: each cell gives a raise and a call frequency. We read them with a small browser-automation script and store them in a plain-text format with one file per spot. The bet sizes of our game are those of the charts (\cref{app:game}), so differences are not sizing artefacts. All chart grids reproduced in this report are credited to this source.
+
+\paragraph{Distance.} We score a solved strategy $\avgstrat$ against a chart at spot $s$ with the weighted total-variation distance of \cref{def:tv-distance}: each class $k$ is weighted by its combo count $n_k$ times the probability $\reach_k$ that our strategy brings the class to the spot through the actor's own earlier actions, so classes we never bring there do not count. A spot's distance lies in $[0,1]$, with $0$ meaning identical play. Spots are grouped into the five categories above; the overall score averages the spots within each category, then averages the categories, so the fifteen deep 4-bet and 5-bet spots do not outweigh the five opens.
+
 \section{Tuning by coordinate search}\label{sec:tuning}
+
+The parameters $\theta$ are chosen to minimise the score plus a penalty for the UTG and BTN open frequencies leaving a band of $\pm 2.5$ percentage points around the charts' own open widths. The search is a coordinate pattern search in the style of \textcite{hooke1961} (\cref{sec:fitting-maths}):
+\begin{itemize}
+  \item each round evaluates $\theta \pm \delta_j e_j$ for every coordinate $j$, each candidate being a \emph{fresh} full solve averaged over a few seeds, the same seeds for every candidate;
+  \item every coordinate whose better step beats the current point by more than $z$ standard errors moves, all together, falling back to the best single move if the combination is worse; the standard error comes from the run-to-run spread pooled over all candidates of the round;
+  \item when nothing moves the steps halve and the iteration count may grow;
+  \item at the end, the winner and the start point are re-scored at the final iteration count.
+\end{itemize}
+An earlier version evaluated candidates by short warm-started runs from a converged solve. That ranked candidates by how fast the solve moved away from the old solution rather than where it would end up, and it stalled; fresh solves are slower but measure the right thing. One round over thirteen parameters costs about $26$ solves per seed, roughly ten minutes at $5\times 10^7$ iterations. This cost, a full solve per candidate, is what motivates the cheaper method of the next section.
+
 \input{methodology-fit}  % diana: \section{A fixed-strategy fit}\label{sec:fixed-fit}
+
 \section{The trainer}\label{sec:trainer}
+
+The trainer deals the user a spot, plays the five other seats as bots, and grades the user's decision. It has a headless core, which is unit-tested, and a graphical front end written with raylib \cite{raylib}.
+
+\paragraph{Spots and bots.} A spot of a requested type (open, facing an open, squeeze, facing a 3-bet, facing a squeeze, facing a 4-bet or more) and position is found by rejection sampling: deal a hand, let the bots and the user's own earlier decisions play from the strategy, and accept it when the user reaches a matching decision. Bots sample their actions from the strategy's average, so they stay mixed and respond sensibly to off-equilibrium play by the user.
+
+\paragraph{Rollout EVs.} Reading action values from sampled regrets would be far too noisy. Instead, for the user's actual hand, the trainer re-deals the opponents' cards from the deck minus the user's, weights each deal by the probability that the bots would have produced the observed history with those cards, and plays every legal action out on the same deals with everyone following the strategy. This is the self-normalised importance-sampling estimator of \cref{eq:snis}. Using the bots' actual cards would leak hidden information. The trainer keeps dealing until the effective sample size reaches $2000$ (or a cap of two million deals), and it reports a standard error per action and per difference between actions; since all actions share the deals, differences are far more precise than levels.
+
+\paragraph{Grading.} A choice is correct if its EV loss against the best action is at most $0.1\bb$, or if the strategy plays it at least $10\%$ of the time and loses at most $1\bb$, or if the loss is within two standard errors. In the chart modes below, a decision covered by a chart is graded by the chart alone: correct if and only if the chart plays the action at least $10\%$ of the time.
+
+\paragraph{Modes.} A key cycles three strategies: \emph{Scratch}; \emph{GTO}, which is Anchored with the GTO charts exactly where charted; and \emph{PTO}, the PTO charts written over Anchored. Statistics (accuracy, average EV loss and the most-leaked spots) are kept per mode.
+
+\paragraph{Interface.} \Cref{fig:gui-table} shows a hand from the trainer. The user, in the cutoff with A$\diamondsuit$Q$\diamondsuit$, opened and faces a 3-bet from the button; the buttons offer a fold, a call of $5\bb$ or a 4-bet to $19.1\bb$. After the hand, the feedback panel shows the EV of each action with its standard error, the grade, the strategy's mix for the hand and the range for the whole spot. Other screens include a spot picker, statistics, a painter for editing charts and a realization inspector (\cref{fig:gui-inspector}), which shows $\real$ for every class in a chosen role, pot type and SPR.
+
+\begin{figure}[p]
+\centering
+\begin{subfigure}{0.92\linewidth}
+\centering
+\includegraphics[width=\linewidth]{screenshots/table.png}
+\caption{The decision: CO holds AQs against the button's 3-bet to $7.5\bb$.}
+\end{subfigure}
+
+\vspace{4mm}
+\begin{subfigure}{0.92\linewidth}
+\centering
+\includegraphics[width=\linewidth]{screenshots/feedback.png}
+\caption{Feedback at the end of the hand. CO 4-bet (the strategy's most frequent action) and the button moved all-in; the panel shows CO's range facing the all-in, AQs's mix (fold $99.8\%$), and rollout EVs: calling loses $6.3\bb$ more than folding.}
+\end{subfigure}
+\caption{The trainer's table view and feedback panel, Scratch mode. Cell colours follow the action (raise, call, fold); classes the strategy never brings to the spot are greyed out.}
+\label{fig:gui-table}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.92\linewidth]{screenshots/inspector.png}
+\caption{The realization inspector, showing $\real$ for an in-position caller in a single-raised pot at SPR $18$. Suited connectors reach $1.35$; dominated offsuit hands such as A9o fall to $0.57$.}
+\label{fig:gui-inspector}
+\end{figure}

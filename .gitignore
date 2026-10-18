@@ -86,3 +86,4 @@ writeup/data/tmp/
 
 # LaTeX writeup sources (local only); the built report is six-max-preflop-equilibria.pdf
 writeup/
+CLAUDE.md

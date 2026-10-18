@@ -4,6 +4,12 @@
 Subcommands (inputs are the raw tool outputs make_data.sh keeps in writeup/data/tmp/):
   grids DUMP OUTDIR [--prefix P] [--rename LABEL=NAME,...]   dump_range output -> one tikzpicture per spot
   distance SCRATCH_GTO SCRATCH_PTO OUT_DAT OUT_TEX            validate per-spot distances
+  scores OUT_TEX OUT_DAT LABEL=VALIDATE[,VALIDATE...] ...    per-category scores, mean +- sd over files
+  lockreport LOG REFDIR OUT_TXT OUT_TEX                       solve --lock's top-N report
+  sanity LOG OUT_TEX                                          solve --report's sanity table
+  fit FIT_TAU03 FIT_TAU1 FIT_TAU3 OUT_KL_TEX OUT_THETA_TEX    fit_realization.py outputs
+  gate1 LOG OUT_TEX                                           sample_evs --check output
+  heat STRATEGY SAMPLES OUTDIR DATADIR                        realization factor per class, 4 roles
 """
 import argparse
 import re
@@ -99,6 +105,187 @@ def cmd_distance(a):
     Path(a.out_tex).write_text("".join(tex))
 
 
+CATS = ["open", "vs_open", "vs_3bet", "vs_4bet", "vs_5bet"]
+SEATS = {"lj": "UTG", "hj": "HJ", "co": "CO", "btn": "BTN", "sb": "SB", "bb": "BB"}
+
+
+def pretty(key):
+    """open_btn -> 'BTN open', vs_3bet_co_vs_btn -> 'CO vs BTN 3-bet' (the site's LJ is our UTG)."""
+    if m := re.fullmatch(r"open_(\w+)", key):
+        return f"{SEATS[m[1]]} open"
+    m = re.fullmatch(r"vs_(open|3bet|4bet|5bet)_(\w+)_vs_(\w+)", key)
+    what = "open" if m[1] == "open" else m[1][0] + "-bet"
+    return f"{SEATS[m[2]]} vs {SEATS[m[3]]} {what}"
+
+
+def mean_sd(xs):
+    m = sum(xs) / len(xs)
+    if len(xs) == 1:
+        return f"{m:.3f}", m, 0.0
+    sd = (sum((x - m) ** 2 for x in xs) / (len(xs) - 1)) ** 0.5
+    return f"${m:.3f} \\pm {sd:.3f}$", m, sd
+
+
+def cmd_scores(a):
+    tex = [HEADER.format("validate per category; mean +- sample sd over seeds"),
+           "% columns: model & seeds & " + " & ".join(CATS) + " & overall\n"]
+    dat = ["model seeds " + " ".join(f"{c} {c}_sd" for c in CATS) + " overall overall_sd\n"]
+    for item in a.items:
+        label, files = item.split("=", 1)
+        runs = [read_validate(f) for f in files.split(",")]
+        cells, nums = [], []
+        for c in CATS + ["overall"]:
+            t, m, sd = mean_sd([r[2] if c == "overall" else r[1][c] for r in runs])
+            cells.append(t), nums.append(f"{m:.4f} {sd:.4f}")
+        tex.append(f"{label} & {len(runs)} & " + " & ".join(cells) + " \\\\\n")
+        dat.append(re.sub(r"\W+", "_", label).strip("_") + f" {len(runs)} " + " ".join(nums) + "\n")
+    Path(a.out_tex).write_text("".join(tex))
+    Path(a.out_dat).write_text("".join(dat))
+
+
+def chart_spots(refdir):
+    """history letters -> ref key, from the charts' spot lines."""
+    out = {}
+    for f in sorted(Path(refdir).glob("*.txt")):
+        for line in f.read_text().splitlines():
+            if line.startswith("spot:"):
+                out[line[5:].strip()] = spot_key(f.stem)
+    return out
+
+
+def cmd_lockreport(a):
+    lines = Path(a.log).read_text().splitlines()
+    start = next(i for i, l in enumerate(lines) if l.startswith("charted spots where"))
+    block = [l for l in lines[start:] if l.strip()]
+    Path(a.out_txt).write_text("\n".join(block) + "\n")
+    names = chart_spots(a.refdir)
+    tex = [HEADER.format("solve --lock report, Anchored recipe"),
+           "% columns: spot & actor & mbb/hand given up & top classes (better action, +mbb)\n"]
+    for l in block:
+        m = re.match(r"\s+(\S+)\s+(\S+)\s+([-\d.]+)\s+off\s+([-\d.]+) \|(.*)", l)
+        if not m:
+            continue
+        hist = "" if m[1] == "(root)" else m[1]
+        cls = re.findall(r"(\S+) (raise|call|fold) \+([\d.]+)", m[5])[:3]
+        top = ", ".join(f"{c} {act} +{float(v):.2f}" for c, act, v in cls)
+        tex.append(f"{pretty(names[hist])} & {m[2]} & {float(m[3]):.2f} & {top} \\\\\n")
+    Path(a.out_tex).write_text("".join(tex))
+
+
+def cmd_sanity(a):
+    tex = [HEADER.format("solve --report on the shipped Scratch solve"),
+           "% columns: seat & open % & BB vs open fold/call/3-bet % & opener vs BB 3-bet fold/call/4-bet % & AA, KK 4-bet %\n"]
+    pct = r"([\d.]+)%"
+    for l in Path(a.log).read_text().splitlines():
+        m = re.match(r"\s+(UTG|HJ|CO|BTN|SB)\s+" + pct + r" \|\s+" + r"\s+".join([pct] * 3) + r"\s+\|\s+" +
+                     r"\s+".join([pct] * 3) + r"\s+" + pct + r"\s+" + pct, l)
+        if m:
+            v = [f"{float(x):.1f}" for x in m.groups()[1:]]
+            tex.append(f"{m[1]} & {v[0]} & {v[1]} & {v[2]} & {v[3]} & {v[4]} & {v[5]} & {v[6]} & {v[7]} & {v[8]} \\\\\n")
+    assert len(tex) == 7, "expected 5 seat rows in the report"
+    Path(a.out_tex).write_text("".join(tex))
+
+
+SYMBOLS = dict(oop=r"\alpha_{\mathrm{oop}}", flush=r"\phi", conn=r"\eta", set=r"\varsigma", dom=r"\delta",
+               low=r"\lambda", spr=r"\kappa", init=r"\iota", pairLow=r"\beta", oopCall=r"\psi",
+               callerShrink=r"\xi", ipCall=r"\chi", domPot=r"\delta_{\mathrm{rr}}")
+
+
+def read_fit(path):
+    text = Path(path).read_text()
+    rows = {}
+    for m in re.finditer(r"^\s+(\S+)\s+(\d+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)$", text, re.M):
+        rows[m[1]] = (int(m[2]),) + tuple(float(x) for x in m.groups()[2:])
+    theta = lambda tag: dict(kv.split("=") for kv in re.search(rf"^{tag} (.*)$", text, re.M)[1].split())
+    return rows, theta("start"), theta("fitted")
+
+
+def cmd_fit(a):
+    fits = {tau: read_fit(f) for tau, f in (("0.3", a.tau03), ("1", a.tau1), ("3", a.tau3))}
+    rows, start, _ = fits["1"]
+    tex = [HEADER.format("fit_realization.py on data/samples, tau = 1"),
+           "% columns: category & spots & KL before & KL after & regret before (bb) & regret after (bb)\n"]
+    for c in CATS + ["(balanced)"]:
+        n, kb, ka, rb, ra = rows[c]
+        label = "Overall (balanced)" if c == "(balanced)" else c.replace("_", "\\_")
+        tex.append(f"{label} & {n} & {kb:.4f} & {ka:.4f} & {rb:.4f} & {ra:.4f} \\\\\n")
+    Path(a.out_kl).write_text("".join(tex))
+    tex = [HEADER.format("fit_realization.py fitted theta per tau (ip fixed at 1)"),
+           "% columns: parameter & start & tau 0.3 & tau 1 & tau 3\n"]
+    for k, sym in SYMBOLS.items():
+        vals = " & ".join(f"{float(fits[t][2][k]):.4g}" for t in ("0.3", "1", "3"))
+        tex.append(f"${sym}$ ({k}) & {float(start[k]):.4g} & {vals} \\\\\n")
+    Path(a.out_theta).write_text("".join(tex))
+
+
+def cmd_gate1(a):
+    tex = [HEADER.format("sample_evs --check --ess 20000 on the current Anchored"),
+           "% columns: spot & class & action & EV from records (bb) & rollout EV (bb) & z. Folds match exactly and are omitted.\n"]
+    spot = cls = None
+    for l in Path(a.log).read_text().splitlines():
+        if m := re.match(r"gto_(\S+)\s+(\S+)\s+ESS", l):
+            spot, cls = pretty(m[1]), m[2]
+        elif (m := re.match(r"\s+(call|raise)\s+records\s+([-\d.]+) \+- ([\d.]+)\s+rollout\s+([-\d.]+) \+- ([\d.]+)\s+z ([-+\d.]+)", l)):
+            tex.append(f"{spot} & {cls} & {m[1]} & ${m[2]} \\pm {m[3]}$ & ${m[4]} \\pm {m[5]}$ & ${float(m[6]):+.2f}$ \\\\\n")
+        elif m := re.match(r"max \|z\| ([\d.]+)", l):
+            tex.append(f"% max |z| {m[1]}\n")
+    Path(a.out_tex).write_text("".join(tex))
+
+
+def cmd_heat(a):
+    import numpy as np
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src/tools"))
+    from fit_realization import class_features, realization
+    theta = np.fromfile(a.strategy, "<f8", count=14, offset=112)  # PFST, version, Config (13 doubles), RealizationConfig
+    L = lambda n: np.load(Path(a.samples) / f"{n}.npy")
+    live, raiser, rr, spr, lastp = (L(f"term_{n}") for n in ("live", "raiser", "reraised", "spr", "last"))
+    CO, BTN, BB = 2, 3, 5
+    # (file name, hero seat, live mask, last raiser, re-raised): the deepest matching flop terminal
+    roles = [("ip_caller_srp", BTN, 1 << CO | 1 << BTN, CO, 0), ("oop_caller_srp", BB, 1 << BTN | 1 << BB, BTN, 0),
+             ("oop_caller_3bp", CO, 1 << CO | 1 << BTN, BTN, 1), ("ip_raiser_3bp", BTN, 1 << CO | 1 << BTN, BTN, 1)]
+    feats = class_features()
+    R, sprs = {}, {}
+    for name, hero, mask, r, x in roles:
+        idx = np.where((live == mask) & (raiser == r) & (rr == x))[0]
+        t = idx[np.argmax(spr[idx])]
+        R[name] = realization(theta, hero == lastp[t], hero == r, float(spr[t]), bool(x), *feats)
+        sprs[name] = float(spr[t])
+    lo, hi = min(v.min() for v in R.values()), max(v.max() for v in R.values())
+    macros = r"""\providecommand{\gridunit}{0.42cm}
+\providecolor{heatcol}{HTML}{1F4E79}
+% \heatcell{col}{row}{fill percent}{label}{value}
+\providecommand{\heatcell}[5]{%
+  \fill[heatcol!#3!white] (#1,-#2) rectangle ++(1,-1);
+  \draw[white,line width=0.3pt] (#1,-#2) rectangle ++(1,-1);
+  \ifnum#3>55\def\heattext{white}\else\def\heattext{black}\fi
+  \node[font=\fontsize{3.5}{3.8}\selectfont,inner sep=0,align=center,text=\heattext] at ({#1+0.5},{-#2-0.5}) {#4\\#5};}
+"""
+    for name, v in R.items():
+        out = [HEADER.format(f"realization factor, role {name}, SPR {sprs[name]:.2f}"), macros,
+               "\\begin{tikzpicture}[x=\\gridunit,y=\\gridunit]\n"]
+        for k in range(169):
+            row, col = divmod(k, 13)
+            p = round(100 * (v[k] - lo) / (hi - lo))
+            out.append(f"\\heatcell{{{col}}}{{{row}}}{{{p}}}{{{class_name(row, col)}}}{{{v[k]:.2f}}}\n")
+        out.append("\\draw[black!50,line width=0.4pt] (0,0) rectangle (13,-13);\n\\end{tikzpicture}\n")
+        Path(a.outdir, f"heat_{name}.tex").write_text("".join(out))
+    bar = [HEADER.format("colour bar shared by the heat_*.tex grids"), macros,
+           "\\begin{tikzpicture}[x=\\gridunit,y=\\gridunit]\n"]
+    for i in range(50):
+        bar.append(f"\\fill[heatcol!{round(100 * i / 49)}!white] ({13 * i / 50:.3f},0) rectangle ++({13 / 50:.3f},0.5);\n")
+    bar.append("\\draw[black!50,line width=0.4pt] (0,0) rectangle (13,0.5);\n")
+    for f in (0, 0.5, 1):
+        bar.append(f"\\node[font=\\scriptsize,below] at ({13 * f:.2f},0) {{{lo + f * (hi - lo):.2f}}};\n")
+    bar.append("\\node[font=\\scriptsize,left] at (0,0.25) {$\\real$};\n\\end{tikzpicture}\n")
+    Path(a.outdir, "heat_colorbar.tex").write_text("".join(bar))
+    Path(a.datadir, "heat_roles.dat").write_text(
+        "role spr r_min r_max\n" + "".join(f"{n} {sprs[n]:.3f} {R[n].min():.4f} {R[n].max():.4f}\n" for n in R))
+    Path(a.datadir, "heat_roles.tex").write_text(
+        HEADER.format("SPR of each heat-grid role, \\heatspr{ip_caller_srp}") +
+        "\\providecommand{\\heatspr}[1]{\\csname heatspr@#1\\endcsname}\n" +
+        "".join(f"\\expandafter\\def\\csname heatspr@{n}\\endcsname{{{sprs[n]:.1f}}}\n" for n in R))
+
+
 def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -108,8 +295,24 @@ def main():
     d = sub.add_parser("distance")
     for x in ("gto", "pto", "out_dat", "out_tex"):
         d.add_argument(x)
+    sc = sub.add_parser("scores")
+    sc.add_argument("out_tex"), sc.add_argument("out_dat"), sc.add_argument("items", nargs="+")
+    lr = sub.add_parser("lockreport")
+    for x in ("log", "refdir", "out_txt", "out_tex"):
+        lr.add_argument(x)
+    sa = sub.add_parser("sanity")
+    sa.add_argument("log"), sa.add_argument("out_tex")
+    fi = sub.add_parser("fit")
+    for x in ("tau03", "tau1", "tau3", "out_kl", "out_theta"):
+        fi.add_argument(x)
+    g1 = sub.add_parser("gate1")
+    g1.add_argument("log"), g1.add_argument("out_tex")
+    he = sub.add_parser("heat")
+    for x in ("strategy", "samples", "outdir", "datadir"):
+        he.add_argument(x)
     a = ap.parse_args()
-    {"grids": cmd_grids, "distance": cmd_distance}[a.cmd](a)
+    {"grids": cmd_grids, "distance": cmd_distance, "scores": cmd_scores, "lockreport": cmd_lockreport,
+     "sanity": cmd_sanity, "fit": cmd_fit, "gate1": cmd_gate1, "heat": cmd_heat}[a.cmd](a)
 
 
 if __name__ == "__main__":

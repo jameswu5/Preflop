@@ -152,6 +152,10 @@ def main():
             print(f"round {rnd} ({iters / 1e6:g}M iterations x {args.seeds} seeds, {len(cands) + scored_cur} candidates, "
                   f"{time.time() - t0:.0f}s, run sd {sd:.4f}): current {cur_score:.4f} ({cur_info})  {cur}")
 
+            se = sd * (1 / args.seeds + 1 / len(cur_seeds)) ** 0.5
+            for (s, _, _), c in sorted(zip(scores, cands), key=lambda x: x[0][0]):
+                k = next(k for k in cur if c[k] != cur[k])
+                print(f"    {k}={c[k]:<7g} {s:.4f}  {s - cur_score:+.4f} ({(s - cur_score) / se:+.1f} se)")
             if fallback and beats(fallback[3], cur_seeds, 0, sd):  # the combined move was worse than the best single
                 print(f"  combined point lost to the best single move ({fallback[1]:.4f}); reverting\n", flush=True)
                 cur, cur_score, cur_info, cur_seeds = fallback

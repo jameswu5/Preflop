@@ -14,11 +14,13 @@ The trainer has two layers: a **headless core** (spot generation, bots, rollouts
 - Also show the solved mixed strategy for the user's hand (e.g. "3-bet 35% / call 65%") and the bot range for context.
 - Track stats per spot type and position: average EV loss, accuracy, and most-leaked spots.
 - Accept as "correct" any action with strategy frequency or EV loss below a configurable threshold (mixed strategies mean several actions can be fine).
+- **Chart mode:** an alternative strategy built by copying the solve and overwriting every spot that has a reference chart in `ref/` (`applyCharts`, `src/solver/strategy.h`; `scope: listed` charts overwrite only the classes they name). Spots without a chart keep the solved strategy. Bots, rollouts and grading all use this strategy, so the user trains against chart-playing opponents. Where the chart decides the user's hand, grading ignores EV: an action is correct iff the chart plays it at least 10% of the time. Rollout EVs are still shown, valued against the chart-playing bots. Where the solve decides, the usual grading applies. Stats are kept per mode.
 
 ## GUI (raylib)
 
 - A table view: seats, stacks, positions, bets in front of players, pot, the user's hole cards, and fold/call/raise buttons labelled with amounts. Keyboard shortcuts too (F/C/R, space for next hand).
 - A feedback panel after each decision: EV per action, EV loss, the solved mix for the hand, and a 13×13 range grid for the relevant bot or for the user's spot.
 - A spot picker (spot type, position) and a stats screen.
+- `T` switches solver/chart mode. It takes effect at the next hand, because rollouts on the worker thread read the current hand's strategy. A badge shows the mode, and an uncharted decision in chart mode is marked "no chart, solver fallback". Closing the painter reloads the charts, after any running rollouts finish.
 - Use **raygui** (header-only, from the raylib author) for buttons and panels. Cards can be drawn as rectangles with text/suit glyphs. Add a sprite sheet later if wanted.
 - Rollouts take noticeable time. Run them on a worker thread and keep the UI loop responsive.

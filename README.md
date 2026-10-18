@@ -41,7 +41,9 @@ build/preflop
 
 With no arguments it loads `data/strategy_6max.bin` and `data/hu_equity.bin`, which is what you want. To use another strategy file, pass its path as the first argument, e.g. `build/preflop data/strategy_hu.bin`. A path that doesn't load does not stop the GUI: it prints `could not load <path>, using uniform strategy` in the terminal and the bots play at random. If the charts look uniform, check the terminal for that line.
 
-Keys: `F` / `C` / `R` fold, call, raise · `Space` next hand · `H` review your last decision · `P` spot picker · `S` stats · `E` chart painter · `Esc` close a panel.
+Keys: `F` / `C` / `R` fold, call, raise · `Space` next hand · `H` review your last decision · `P` spot picker · `S` stats · `E` chart painter · `T` solver / chart mode (from the next hand) · `Esc` close a panel.
+
+Chart mode trains against the reference charts in `ref/` instead of the solve: bots play the charts, and your decision is correct if the chart plays it at least 10% of the time. Spots without a chart (squeezes, cold 4-bets, ...) fall back to the solve and say so. The terminal prints how many charts loaded, or why none did.
 
 For a quick heads-up strategy to try (SB vs BB, under a minute):
 

@@ -28,6 +28,7 @@ struct Chart {
     RangeFreqs act[3] = {};  // per Act: fold (derived), call, raise
     bool given[3] = {};      // raise/call line present
     bool listedOnly = false;
+    // "Named" means non-zero raise or call: under scope: listed, an explicit "AKs:0" counts as unlisted.
     bool listed(int b) const { return act[1][b] > 0 || act[2][b] > 0; }
 };
 // false (and `err` set) on an unreadable file, a malformed line, or raise + call > 1.

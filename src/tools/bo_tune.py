@@ -29,7 +29,8 @@ from tune import ROOT, START, STEP, evaluate  # noqa: E402
 
 KEYS = list(START)
 SPACE = [Real(0.3, 8.0, prior="log-uniform", name=k) if k == "spr" else
-         Real(max(0.0, START[k] - 3 * STEP[k]), START[k] + 3 * STEP[k], name=k) for k in KEYS]
+         Real(round(max(0.0, START[k] - 3 * STEP[k]), 6), round(START[k] + 3 * STEP[k], 6), name=k)
+         for k in KEYS]  # bounds on the same 6-decimal grid as the logged points, so a rounded point stays inside
 
 
 def optimizer(init, seed=0):

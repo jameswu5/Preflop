@@ -14,7 +14,6 @@
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
-#include <functional>
 #include <fstream>
 #include <future>
 #include <optional>
@@ -190,17 +189,27 @@ void feedback(const Decision& d, float x, float y) {
     DrawTextEx(bold, b, {x, y + 6}, 20, 0, std::isnan(f.evLoss) ? GREY : f.correct ? Color{80, 200, 120, 255} : Color{230, 80, 70, 255});
 }
 
+// A strategy the trainer can play (T cycles them): the solve, or a chart set written over a base strategy.
+struct Mode {
+    std::string name, dir, bin;   // chart dir and chart-locked solve file, "" for the solver
+    pf::Strategy st;
+    std::vector<uint8_t> locked;  // [node * NBUCKETS + bucket] = 1 where st's mix comes from a chart; empty = no charts
+    std::string fallback;         // "no chart, ..." label for uncharted spots
+    bool charted(int node, int b) const { return !locked.empty() && locked[size_t(node) * pf::NBUCKETS + b]; }
+};
+
 // 13x13 strategy grid for one decision. reach = how often each class gets here (dimmed if never);
 // highlight = the user's bucket, -1 for bots (cards hidden).
-// charted(b) = the shown mix for class b comes from a chart (empty in solver mode).
-void rangePanel(const pf::Strategy& st, const Decision& d, const std::array<double, pf::NBUCKETS>& reach, const std::string& title,
-                int highlight, bool nextHand, const std::function<bool(int)>& charted) {
+void rangePanel(const Mode& mode, const Decision& d, const std::array<double, pf::NBUCKETS>& reach, const std::string& title,
+                int highlight, bool nextHand) {
+    const pf::Strategy& st = mode.st;
     panelBg(PANEL);
     DrawTextEx(bold, title.c_str(), {GX, PANEL.y + 20}, 26, 0, WHITE);
     DrawTextEx(font, (d.spot.empty() ? "Unopened pot" : d.spot).c_str(), {GX, PANEL.y + 54}, 17, 0, {150, 154, 162, 255});
     bool anyChart = false;
-    for (int b = 0; b < pf::NBUCKETS && charted; b++) anyChart |= charted(b);
-    if (charted && !anyChart) text(bold, "no chart, solver fallback", {PANEL.x + PANEL.width - 130, PANEL.y + 34}, 16, {230, 160, 60, 255});
+    for (int b = 0; b < pf::NBUCKETS; b++) anyChart |= mode.charted(d.node, b);
+    if (!mode.locked.empty() && !anyChart)
+        text(bold, mode.fallback, {PANEL.x + PANEL.width - 150, PANEL.y + 34}, 16, {230, 160, 60, 255});
 
     Vector2 m = GetMousePosition();
     int hover = -1;
@@ -233,7 +242,7 @@ void rangePanel(const pf::Strategy& st, const Decision& d, const std::array<doub
     y += 66;
     int shown = hover >= 0 ? hover : highlight;
     if (shown >= 0) {
-        std::string src = charted && charted(shown) ? "  (Chart)" : "  (Solved)";
+        std::string src = "  (" + (mode.charted(d.node, shown) ? mode.name : std::string("Solved")) + ")";
         DrawTextEx(font, ((hover >= 0 ? "Hand" : "Your hand") + src).c_str(), {x, y}, 15, 0, GREY);
         DrawTextEx(bold, pf::bucketName(shown).c_str(), {x, y + 18}, 26, 0, WHITE);
         actRows(st.probs(d.node, shown), x, y + 54);
@@ -762,22 +771,24 @@ int main(int argc, char** argv) {
     std::string hu = argc > 2 ? argv[2] : std::string(GetApplicationDirectory()) + "../data/hu_equity.bin";
     if (!eq.loadHuTable(hu)) std::fprintf(stderr, "no heads-up equity table at %s, sampling instead\n", hu.c_str());
     pf::RolloutConfig rc;
-    rc.rc = strat.realization();
-    // Chart mode (T): the solved strategy with every ref/ chart written over it; uncharted spots stay solved.
-    std::string refDir = std::string(GetApplicationDirectory()) + "../ref";
-    pf::Strategy chart = strat;
-    std::vector<uint8_t> locked;  // [node * NBUCKETS + bucket] = 1 where chart's mix comes from a chart
-    bool chartsOk = false;
-    auto loadCharts = [&] {  // keeps the previous charts if the directory doesn't load
+    // Chart modes: the charts written over a chart-locked solve (uncharted spots best-respond to the charts)
+    // if that file exists, else over the plain solve. Re-applying the charts gives the mask and painter edits.
+    std::string app = GetApplicationDirectory();
+    Mode modes[3] = {{"Solver", "", "", strat}, {"GTO", app + "../ref", app + "../data/strategy_gto.bin", strat},
+                     {"PTO", app + "../ref/pto", app + "../data/strategy_pto.bin", strat}};
+    auto loadCharts = [&](Mode& m) {  // keeps the previous strategy if the charts don't load
         pf::Strategy c = strat;
+        bool solved = c.load(m.bin);  // unchanged on failure
         std::vector<uint8_t> l;
         std::string err;
-        int n = pf::applyCharts(c, refDir, &l, &err);
-        if (n <= 0) return (void)std::fprintf(stderr, "charts from %s not loaded: %s\n", refDir.c_str(), n < 0 ? err.c_str() : "no charts");
-        chart = std::move(c), locked = std::move(l), chartsOk = true;
-        std::fprintf(stderr, "%d charts loaded from %s\n", n, refDir.c_str());
+        int n = pf::applyCharts(c, m.dir, &l, &err);
+        if (n <= 0) return (void)std::fprintf(stderr, "%s: charts from %s not loaded: %s\n", m.name.c_str(), m.dir.c_str(), n < 0 ? err.c_str() : "no charts");
+        m.st = std::move(c), m.locked = std::move(l);
+        m.fallback = solved ? "no chart, chart-locked solve" : "no chart, solver fallback";
+        std::fprintf(stderr, "%s: %d charts from %s over %s\n", m.name.c_str(), n, m.dir.c_str(), solved ? m.bin.c_str() : "the solve");
     };
-    loadCharts();
+    loadCharts(modes[1]);
+    loadCharts(modes[2]);
 
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_HIGHDPI | FLAG_VSYNC_HINT);
     InitWindow(W, H, "Preflop");
@@ -808,10 +819,9 @@ int main(int argc, char** argv) {
     int menu = 0;                 // 1 = spot picker, 2 = stats
     bool reviewed = false;        // the user's end-of-hand feedback already shown
     pf::SpotFilter filter;
-    bool useCharts = false, handCharts = false;  // picked with T / used by the current hand (switches at newHand)
-    const pf::Strategy* cur = &strat;             // the current hand's strategy: bots, rollouts, grading, ranges
-    auto charted = [&](int node, int b) { return handCharts && locked[size_t(node) * pf::NBUCKETS + b]; };
-    pf::Stats stats[2];                           // [handCharts]
+    int pick = 0, mode = 0;            // modes[] index picked with T / used by the current hand (switches at newHand)
+    const pf::Strategy* cur = &strat;  // modes[mode].st: bots, rollouts, grading, ranges
+    pf::Stats stats[3];                // per mode
     std::string notice;
 
     auto lastBy = [&](int pos) {
@@ -826,9 +836,9 @@ int main(int argc, char** argv) {
         // On a charted hand the chart decides: correct iff it plays the choice at least 10% of the time.
         auto& c = d.sp->hand.cards[d.sp->user];
         pf::GradeConfig g;
-        if (charted(d.node, pf::bucket(c[0], c[1]))) g.maxLoss = -1, g.mixedLossCap = 1e9;
+        if (modes[mode].charted(d.node, pf::bucket(c[0], c[1]))) g.maxLoss = -1, g.mixedLossCap = 1e9;
         d.fb = pf::grade(*cur, *d.sp, d.ev.get(), d.act, g);
-        if (!std::isnan(d.fb->evLoss)) stats[handCharts].add(*d.sp, *d.fb);
+        if (!std::isnan(d.fb->evLoss)) stats[mode].add(*d.sp, *d.fb);
     };
 
     std::optional<pf::Act> next;  // bot's action, picked when its turn starts so the think time can depend on it
@@ -839,15 +849,16 @@ int main(int argc, char** argv) {
     auto newHand = [&] {
         for (auto& d : log) collect(d, true);
         log.clear();
-        handCharts = useCharts && chartsOk;
-        cur = handCharts ? &chart : &strat;
+        mode = pick;
+        cur = &modes[mode].st;
+        rc.rc = cur->realization();
         pf::SpotFilter f = filter;
         if (f.type == pf::SpotType::NSPOT && f.pos < 0) f.pos = posOf(HERO, (btn + 1) % pf::NPOS);  // normal rotation
         auto sp = pf::deal(*cur, f, rng);
         notice = sp ? "" : "No such spot found, dealing any spot";
         if (!sp) sp = pf::deal(*cur, {}, rng);
         btn = (pf::BTN - sp->user + pf::NPOS) % pf::NPOS;  // puts the user's position in the hero seat
-        hand.emplace(rng, strat.config());
+        hand.emplace(rng, cur->config());
         hand->cards = sp->hand.cards;
         replay.clear();
         for (auto& st : sp->path) replay.push_back(st.act);
@@ -904,8 +915,8 @@ int main(int argc, char** argv) {
                 if (!inspector->frame()) inspector.reset();
             } else if (!painter->frame()) {
                 painter.reset();
-                for (auto& d : log) collect(d, true);  // rollouts read `chart`; let them finish first
-                loadCharts();
+                for (auto& d : log) collect(d, true);  // rollouts may read modes[1].st; let them finish first
+                loadCharts(modes[1]);
             } else if (painter->inspect) {
                 painter->inspect = false;
                 inspector.emplace(strat);
@@ -946,10 +957,12 @@ int main(int argc, char** argv) {
         } else if (IsKeyPressed(KEY_I)) {
             inspector.emplace(strat);
         } else if (IsKeyPressed(KEY_T)) {
-            if (chartsOk) useCharts = !useCharts;
-            else notice = "No charts loaded (see terminal)";
+            int was = pick;
+            do pick = (pick + 1) % 3;
+            while (pick && modes[pick].locked.empty());  // skip chart modes without charts
+            if (pick == was) notice = "No charts loaded (see terminal)";
         } else if (IsKeyPressed(KEY_E)) {
-            painter.emplace(strat, refDir);
+            painter.emplace(strat, modes[1].dir);  // edits the GTO charts
         } else if (int s = click ? seatAt(mouse) : -1; s >= 0 && lastBy(posOf(s, btn)) >= 0) {
             view = lastBy(posOf(s, btn));
         } else if (IsKeyPressed(KEY_H) && lastBy(hero) >= 0) {
@@ -1088,17 +1101,20 @@ int main(int argc, char** argv) {
             if (button({16, 16, 110, 34}, "Spots (P)", false, 15)) menu = 1;
             if (button({134, 16, 110, 34}, "Stats (S)", false, 15)) menu = 2;
             if (button({252, 16, 130, 34}, "Painter (E)", false, 15))
-                painter.emplace(strat, refDir);
+                painter.emplace(strat, modes[1].dir);  // edits the GTO charts
             if (button({390, 16, 100, 34}, "R (I)", false, 15)) inspector.emplace(strat);
         }
         {  // strategy badge, top right: the current hand's mode, and the next hand's if T changed it
-            std::string m = std::string(handCharts ? "Charts" : "Solver") + (useCharts != handCharts ? (useCharts ? " -> Charts" : " -> Solver") : "") + "  (T)";
+            std::string m = modes[mode].name + (pick != mode ? " -> " + modes[pick].name : "") + "  (T)";
+            const Color MODE_COL[] = {{52, 56, 64, 255}, {46, 110, 160, 255}, {120, 84, 160, 255}};
             float w = MeasureTextEx(bold, m.c_str(), 15, 0).x + 24;
-            DrawRectangleRounded({W - 16 - w, 16, w, 34}, .5f, 8, handCharts ? Color{46, 110, 160, 255} : Color{52, 56, 64, 255});
+            DrawRectangleRounded({W - 16 - w, 16, w, 34}, .5f, 8, MODE_COL[mode]);
             text(bold, m, {W - 16 - w / 2, 33}, 15, WHITE);
             bool heroTurn = !hand->done() && turn == hero && replayAt >= replay.size();
-            if (heroTurn && handCharts && !charted(node, pf::bucket(hand->cards[hero][0], hand->cards[hero][1])))
-                text(bold, "no chart, solver fallback", {W - 16 - w / 2, 62}, 14, {230, 160, 60, 255});
+            if (heroTurn && mode && !modes[mode].charted(node, pf::bucket(hand->cards[hero][0], hand->cards[hero][1]))) {
+                float fw = MeasureTextEx(bold, modes[mode].fallback.c_str(), 14, 0).x;
+                text(bold, modes[mode].fallback, {W - 16 - fw / 2, 62}, 14, {230, 160, 60, 255});
+            }
         }
         std::string drill = "Drill: " + std::string(pf::spotName(filter.type)) + ", " + POS_PICK[filter.pos + 1];
         DrawTextEx(font, (drill + (notice.empty() ? "" : "   (" + notice + ")")).c_str(), {502, 25}, 15, 0, GREY);
@@ -1110,13 +1126,11 @@ int main(int argc, char** argv) {
             for (int i = 0; i < view; i++) hist.push_back(log[i].act);
             std::string title = std::string(SEAT_NAME[seatOf(dv.pos, btn)]) + " - " + POS_NAME[dv.pos];
             if (dv.sp) title += "  (" + std::string(pf::spotName(dv.sp->type)) + ")";
-            std::function<bool(int)> ch;
-            if (handCharts) ch = [&](int b) { return charted(dv.node, b); };
-            rangePanel(*cur, dv, cur->reach(hist), title, dv.pos == hero ? pf::bucket(hand->cards[hero][0], hand->cards[hero][1]) : -1,
-                       hand->done(), ch);
+            rangePanel(modes[mode], dv, cur->reach(hist), title, dv.pos == hero ? pf::bucket(hand->cards[hero][0], hand->cards[hero][1]) : -1,
+                       hand->done());
         }
         if (menu == 1 && pickerPanel(filter)) menu = 0;
-        if (menu == 2 && statsPanel(stats[handCharts], handCharts ? "Stats - charts" : "Stats - solver")) menu = 0;
+        if (menu == 2 && statsPanel(stats[mode], ("Stats - " + modes[mode].name).c_str())) menu = 0;
 
         EndDrawing();
     }

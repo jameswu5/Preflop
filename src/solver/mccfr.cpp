@@ -216,6 +216,7 @@ bool Solver::loadCheckpoint(const std::string& path, std::string* err) {
         !in.read(reinterpret_cast<char*>(&sc), version < 8 ? offsetof(SolverConfig, realization) + REALIZATION_V1_SIZE : sizeof sc) ||
         !get(in, t) || !get(in, rlen) || rlen > 1 << 16)
         return fail("not a checkpoint, or an unsupported version");
+    if (version < 8) sc.realization.ipCall = 1, sc.realization.domPot = 0;  // neutral, as solved
     bool newR = std::memcmp(&sc.realization, &sc_.realization, sizeof sc.realization) != 0;
     sc.realization = sc_.realization;  // R may differ: warm start
     sc.flopBoards = sc_.flopBoards;    // estimation precision, not part of the game

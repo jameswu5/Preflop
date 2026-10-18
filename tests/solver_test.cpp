@@ -137,9 +137,23 @@ int main() {
         assert(!c.loadCheckpoint("solver_test.ck") && c.iterations() == 30000);
         std::remove("solver_test.ck");
     }
-    if (std::ifstream(DATA_DIR "/strategy_6max.bin").good()) {  // older strategy files load, new R fields default
+    {  // a version-7 strategy file (no ipCall/domPot) loads with them neutral, not at today's defaults
         Strategy s;
-        assert(s.load(DATA_DIR "/strategy_6max.bin") && s.realization().ipCall == 1 && s.realization().domPot == 0);
+        assert(s.save("solver_test.strat"));
+        std::ifstream f("solver_test.strat", std::ios::binary);
+        std::string b((std::istreambuf_iterator<char>(f)), {});
+        uint32_t v7 = 7;
+        std::memcpy(&b[4], &v7, sizeof v7);
+        size_t at = 8 + sizeof(Config) + REALIZATION_V1_SIZE;
+        b.erase(at, sizeof(RealizationConfig) - REALIZATION_V1_SIZE);
+        std::ofstream("solver_test.strat", std::ios::binary) << b;
+        Strategy t;
+        assert(t.load("solver_test.strat") && t.realization().ipCall == 1 && t.realization().domPot == 0);
+        std::remove("solver_test.strat");
+    }
+    if (std::ifstream(DATA_DIR "/strategy_6max.bin").good()) {  // the real strategy file round-trips exactly
+        Strategy s;
+        assert(s.load(DATA_DIR "/strategy_6max.bin"));
         assert(s.save("solver_test.strat"));
         Strategy t;
         assert(t.load("solver_test.strat") && t.probs(5, 7) == s.probs(5, 7) &&

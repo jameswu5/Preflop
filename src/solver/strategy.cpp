@@ -106,6 +106,7 @@ bool Strategy::load(const std::string& path) {
         !in.read(reinterpret_cast<char*>(&rc), version < 8 ? REALIZATION_V1_SIZE : sizeof rc) ||
         !in.read(reinterpret_cast<char*>(&n), sizeof n))
         return false;
+    if (version < 8) rc.ipCall = 1, rc.domPot = 0;  // solved before these existed: neutral, not today's defaults
     Tree tree(cfg);
     if (n != tree.size()) return false;
     std::vector<std::array<float, 3>> p(size_t(n) * NBUCKETS);

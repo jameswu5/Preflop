@@ -56,7 +56,10 @@ double Hand::snap(double x) const {
 Hand::Hand(std::mt19937& rng, const Config& cfg) : cfg_(cfg) {
     std::array<uint8_t, 52> deck;
     std::iota(deck.begin(), deck.end(), 0);
-    std::shuffle(deck.begin(), deck.end(), rng);
+    // Partial Fisher-Yates over the 12 dealt cards only; Lemire multiply-shift for the index
+    // (bias < 1e-8). A full std::shuffle was ~20% of solver time.
+    for (int i = 0; i < 2 * NPOS; ++i)
+        std::swap(deck[i], deck[i + int((uint64_t(rng()) * uint32_t(52 - i)) >> 32)]);
     for (int p = 0; p < NPOS; ++p)
         for (int c = 0; c < 2; ++c) {
             uint8_t d = deck[p * 2 + c];
@@ -99,8 +102,10 @@ double Hand::raiseTo() const {
 }
 
 void Hand::apply(Act a) {
+#ifndef NDEBUG  // legal() allocates; keep it out of the solver's hot path in release builds
     auto l = legal();
     assert(std::find(l.begin(), l.end(), a) != l.end());
+#endif
     int p = toAct_;
     if (a == Act::Fold) {
         folded_[p] = true;

@@ -55,10 +55,18 @@ void Equity::compute(const Holes& cards, const std::array<bool, NPOS>& live, std
     for (int i = 0; i < n; ++i)
         hand[i][0] = cardIndex(cards[players[i]][0]), hand[i][1] = cardIndex(cards[players[i]][1]);
 
+    // splitmix64 seeded once from rng: mt19937 per card was a large share of solver time.
+    uint64_t state = uint64_t(rng()) << 32 | rng();
+    auto next32 = [&state] {
+        uint64_t z = state += 0x9E3779B97F4A7C15ull;
+        z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
+        z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
+        return uint32_t((z ^ (z >> 31)) >> 32);
+    };
     for (int k = 0; k < boards; ++k) {
         for (int j = 0; j < 5; ++j) {  // partial Fisher-Yates
-            // Lemire multiply-shift instead of uniform_int_distribution: one rng call, bias < 1e-8.
-            uint32_t pick = uint32_t((uint64_t(rng()) * uint32_t(nd - j)) >> 32);
+            // Lemire multiply-shift instead of uniform_int_distribution: one draw, bias < 1e-8.
+            uint32_t pick = uint32_t((uint64_t(next32()) * uint32_t(nd - j)) >> 32);
             std::swap(deck[j], deck[j + pick]);
             for (int i = 0; i < n; ++i) hand[i][2 + j] = deck[j];
         }

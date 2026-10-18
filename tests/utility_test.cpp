@@ -1,4 +1,5 @@
 #undef NDEBUG  // the build defaults to Release; keep asserts on
+#include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <cstdio>
@@ -97,13 +98,20 @@ int main() {
             }
 
         // hand-checked: KJo out of position, calling, SPR 5 (oop .8, conn .03, dom .05, low .03, spr 3)
-        const RealizationConfig hc{1.0, 0.8, 0, 0.03, 0, 0.05, 0.03, 3, 0, 0};
+        const RealizationConfig hc{1.0, 0.8, 0, 0.03, 0, 0.05, 0.03, 3, 0, 0, 1, 1};  // callerShrink 1: fading
         double g = 5 / 8.0, p = 1 - 0.2 * g, h = 1 + 0.03 * 2 * g - 0.05 * 1 - 0.03 * 1;
         assert(near(realization(hc, false, false, 5, c(K, 0), c(J, 1)), p * h));
         RealizationConfig def;
-        // position matters less in shallow pots
-        assert(realization(def, false, false, 1.3, c(K, 0), c(J, 1)) / realization(def, true, false, 1.3, c(K, 0), c(J, 1)) >
-               realization(def, false, false, 18, c(K, 0), c(J, 1)) / realization(def, true, false, 18, c(K, 0), c(J, 1)));
+        auto ratio = [&](const RealizationConfig& r, bool raiser, double spr) {  // OOP / IP
+            return realization(r, false, raiser, spr, c(K, 0), c(J, 1)) / realization(r, true, raiser, spr, c(K, 0), c(J, 1));
+        };
+        // position matters less in shallow pots for raisers; OOP callers pay the full penalty by
+        // default (callerShrink 0) and fade like raisers only with callerShrink 1
+        assert(ratio(def, true, 1.3) > ratio(def, true, 18));
+        assert(near(ratio(def, false, 1.3), ratio(def, false, 18)));
+        RealizationConfig fade = def;
+        fade.callerShrink = 1;
+        assert(ratio(fade, false, 1.3) > ratio(fade, false, 18));
 
         // dom applies only when calling: K6o as caller vs as the last raiser
         RealizationConfig dm = rc;
@@ -140,6 +148,7 @@ int main() {
         Eq eq{0, 0, 0.5, 0.5, 0, 0};
         RealizationConfig s5 = rc;
         s5.spr = 5;
+        s5.callerShrink = 1;  // this block checks the depth fade, including for the OOP caller below
         Hand srp(rng, NR);  // CO opens, BTN calls: pot 6.5, 97.5 behind, SPR 15
         play(srp, {F, F, R, C, F, F});
         double co = 1 - 0.2 * 15 / 20.0;  // 0.85
@@ -162,6 +171,7 @@ int main() {
         assert(near(u[CO], co / (co + 1) * 6.5 - 2.5) && near(u[BTN], 1 / (co + 1) * 6.5 - 2.5) && near(total(u), 0));
 
         ini.spr = 5;  // both: the OOP penalty fades with the SPR, the raiser's bonus doesn't
+        ini.callerShrink = 1;  // the OOP player here (CO) is a caller
         double btn = 1.2;
         co = 1 - 0.2 * spr / (spr + 5);
         u = payoffs(tb, eq, ini);
@@ -177,6 +187,66 @@ int main() {
                 h.apply(l[rng() % l.size()]);
             }
             assert(near(total(utility(h, e, rng, 20, all)), -rake(h)) && near(total(utility(h, e, rng, 20, ini)), -rake(h)));
+        }
+    }
+    {  // oopCall / callerShrink: only out-of-position callers change, and the defaults change nothing
+        auto c = [](int rank, int suit) { return Card{uint8_t(rank), uint8_t(suit)}; };
+        auto before = [](const RealizationConfig& r, bool ip, bool raiser, double spr, Card a, Card b) {  // previous model
+            int hi = std::max(a.rank, b.rank);
+            bool pair = a.rank == b.rank, suited = a.suit == b.suit;
+            double g = spr / (spr + r.spr), pos = ip ? r.ip : 1 - (1 - r.oop) * g;
+            double h = 1 + r.flush * suited + r.conn * straights(a, b) * g + r.set * pair * g -
+                       r.dom * domination(a, b) * !raiser - r.low * (12 - hi) * (!pair && !suited) - r.pairLow * (12 - hi) * pair;
+            return std::max(pos * h * (raiser ? 1 + r.init : 1), 0.05);
+        };
+        RealizationConfig def;
+        def.callerShrink = 1;  // the previous formula: every OOP player's penalty fades with depth
+        for (int x = 0; x < 13; ++x)
+            for (int y = 0; y <= x; ++y)
+                for (int suit : {0, 1})  // suited and offsuit (pairs: offsuit only)
+                    for (bool ip : {false, true})
+                        for (bool raiser : {false, true})
+                            for (double spr : {1.3, 5.0, 18.0}) {
+                                if (x == y && suit == 0) continue;
+                                Card a = c(x, 0), b = c(y, suit == 0 ? 0 : 1);
+                                assert(near(realization(def, ip, raiser, spr, a, b), before(def, ip, raiser, spr, a, b)));
+                            }
+
+        const Card a5s[2] = {c(12, 2), c(3, 2)};
+        double g = 5 / 8.0;  // SPR 5, spr 3
+        double play = def.flush + def.conn * straights(a5s[0], a5s[1]) * g;  // A5s: suited, 1 straight
+        RealizationConfig a1 = def;  // A1: OOP callers keep half their playability bonus
+        a1.oopCall = 0.5;
+        double oopPos = 1 - (1 - def.oop) * g;
+        assert(near(realization(a1, false, false, 5, a5s[0], a5s[1]), oopPos * (1 + 0.5 * play)));
+        assert(near(realization(a1, false, false, 5, a5s[0], a5s[1]),
+                    realization(def, false, false, 5, a5s[0], a5s[1]) - oopPos * 0.5 * play));
+        for (auto [ip, raiser] : {std::pair{true, false}, {false, true}, {true, true}})  // everyone else unchanged
+            assert(near(realization(a1, ip, raiser, 5, a5s[0], a5s[1]), realization(def, ip, raiser, 5, a5s[0], a5s[1])));
+
+        RealizationConfig a2 = def;  // A2: callerShrink 0 = full OOP penalty at any depth, for callers only
+        a2.callerShrink = 0;
+        double h = 1 + play;
+        assert(near(realization(a2, false, false, 5, a5s[0], a5s[1]), def.oop * h));
+        for (double spr : {1.3, 18.0}) {  // 22 as an OOP caller: position factor is oop at any depth
+            double h22 = 1 + def.set * spr / (spr + def.spr) - 12 * def.pairLow;
+            assert(near(realization(a2, false, false, spr, c(0, 0), c(0, 1)), def.oop * h22));
+        }
+        a2.callerShrink = 0.5;  // halfway: the fade factor is 0.5 * g + 0.5
+        assert(near(realization(a2, false, false, 5, a5s[0], a5s[1]), (1 - (1 - def.oop) * (0.5 * g + 0.5)) * h));
+        for (auto [ip, raiser] : {std::pair{true, false}, {false, true}, {true, true}})
+            assert(near(realization(a2, ip, raiser, 5, a5s[0], a5s[1]), realization(def, ip, raiser, 5, a5s[0], a5s[1])));
+
+        Equity e;  // both on: payoffs still sum to -rake
+        RealizationConfig both = def;
+        both.oopCall = 0.3, both.callerShrink = 0.2;
+        for (int i = 0; i < 200; ++i) {
+            Hand hd(rng);
+            while (!hd.done()) {
+                auto l = hd.legal();
+                hd.apply(l[rng() % l.size()]);
+            }
+            assert(near(total(utility(hd, e, rng, 20, both)), -rake(hd)));
         }
     }
     {  // rake: 5% capped at 4bb, only when a flop is dealt or an all-in is called

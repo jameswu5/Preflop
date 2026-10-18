@@ -47,7 +47,13 @@ public:
     bool loadCheckpoint(const std::string& path);
 
 private:
-    double traverse(const Hand& h, int node, int traverser, std::mt19937& rng, bool shared);
+    // Equity depends only on the hole cards and who is still in, so within one iteration it is
+    // computed once per live set (and all-in vs flop) and reused by every terminal that shares it.
+    struct EquityCache {
+        std::array<std::array<double, NPOS>, 64> eq[2];  // [allIn][live mask]
+        uint64_t valid[2] = {0, 0};
+    };
+    double traverse(const Hand& h, int node, int traverser, std::mt19937& rng, bool shared, EquityCache& cache);
     std::array<float, 3> regretMatch(int node, int bucket, bool shared) const;
     void iterate(long t, std::mt19937& rng, bool shared);
     void discount(int threads);

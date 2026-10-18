@@ -132,9 +132,11 @@ $\gamma$ is near 1 in deep, single-raised pots and falls in 3-bet and 4-bet pots
 
 **Position.**
 
-$$\mathrm{pos}_i = \begin{cases} \alpha_{\text{ip}} & i \text{ acts last postflop among } L, \\ 1 - (1 - \alpha_{\text{oop}})\,\gamma & \text{otherwise.} \end{cases}$$
+Call player $i$ an **out-of-position caller** if $i$ neither acts last postflop among $L$ nor made the last raise,. Such a player has neither position nor initiative.
 
-Postflop order is SB, BB, UTG, HJ, CO, BTN. The out-of-position penalty $1 - \alpha_{\text{oop}}$ shrinks with depth: with little behind, there is little to be out-played on.
+$$\mathrm{pos}_i = \begin{cases} \alpha_{\text{ip}} & i \text{ acts last postflop among } L, \\ 1 - (1 - \alpha_{\text{oop}})\,\gamma' & \text{otherwise,} \end{cases} \qquad \gamma' = \begin{cases} \xi\,\gamma + (1 - \xi) & \text{out-of-position caller,} \\ \gamma & \text{otherwise.} \end{cases}$$
+
+Postflop order is SB, BB, UTG, HJ, CO, BTN. The out-of-position penalty $1 - \alpha_{\text{oop}}$ shrinks with depth: with little behind, there is little to be out-played on. For out-of-position callers, $\xi \in [0,1]$ controls how much of that shrink applies. With $\xi = 1$ they are treated like everyone else; with $\xi = 0$ they pay the full penalty at any depth. The idea is that calling a 3-bet out of position stays costly even in a shallow pot, because the caller still faces a c-bet with no initiative. An out-of-position *raiser* keeps the full shrink.
 
 **Hand features.** For a hand with ranks $r_1 \ge r_2$ (2 = 0, …, A = 12):
 
@@ -142,7 +144,9 @@ Postflop order is SB, BB, UTG, HJ, CO, BTN. The out-of-position penalty $1 - \al
 - $\mathrm{dom}(r_1,r_2)$: for offsuit non-pairs with $r_1 \ge \text{T}$, $\min(r_1 - 1 - r_2,\ 4)$, and 0 otherwise. It measures how often the hand makes top pair with a weak kicker against better versions of itself. For example KQo has 0, KJo 1, AJo 2, and K6o is capped at 4.
 - Indicators $\mathbb 1_{\text{suited}}$, $\mathbb 1_{\text{pair}}$, $\mathbb 1_{\text{off}}$ (offsuit non-pair), and $\mathbb 1_{\text{raiser}}$ (player $i$ made the last raise).
 
-$$H_i = 1 + \phi\, \mathbb 1_{\text{suited}} + \eta\, \mathrm{st}(r_1,r_2)\,\gamma + \varsigma\, \mathbb 1_{\text{pair}}\,\gamma - \delta\, \mathrm{dom}(r_1,r_2)\,(1 - \mathbb 1_{\text{raiser}}) - \lambda\,(12 - r_1)\,\mathbb 1_{\text{off}} - \beta\,(12 - r_1)\,\mathbb 1_{\text{pair}}.$$
+$$H_i = 1 + \big(\phi\, \mathbb 1_{\text{suited}} + \eta\, \mathrm{st}(r_1,r_2)\,\gamma + \varsigma\, \mathbb 1_{\text{pair}}\,\gamma\big)\,\psi_i - \delta\, \mathrm{dom}(r_1,r_2)\,(1 - \mathbb 1_{\text{raiser}}) - \lambda\,(12 - r_1)\,\mathbb 1_{\text{off}} - \beta\,(12 - r_1)\,\mathbb 1_{\text{pair}}.$$
+
+where $\psi_i = \psi$ for an out-of-position caller and $\psi_i = 1$ otherwise.
 
 Reading the terms:
 
@@ -151,6 +155,7 @@ Reading the terms:
 - $\delta$ (domination) applies only when **calling**. A dominated hand that calls ends up in pots with ranges that crush it, while as the aggressor it often takes the pot or is the one doing the dominating.
 - $\lambda$ (low cards) charges offsuit non-pairs for each rank their top card sits below an ace.
 - $\beta$ (low pairs) charges pairs for each rank below aces, at any depth: overcards come on most flops and small pairs realize badly against them in every pot. Their upside, flopping a set, is already in $\varsigma\,\gamma$. The term is there so small pairs prefer flatting (set mining) to 3-betting.
+- $\psi$ (out-of-position calling) scales the three playability bonuses for out-of-position callers. Flush, straight and set potential are worth less without position or initiative to play them. With $\psi < 1$, a hand like A5s gains less from calling a 3-bet out of position than from 4-betting, which is where its blockers and playability work together.
 
 **Combined, with a floor.**
 
@@ -160,9 +165,9 @@ where $\iota$ rewards the last aggressor. The floor keeps every $R_i$ positive, 
 
 **Why this shape.** The intended outcome is *polarized* re-raising ranges. Hands that realize badly when calling, such as dominated offsuit broadways, prefer to raise or fold. Hands whose value is postflop playability, such as suited aces, suited connectors and small pairs, get that value in deep pots, which mostly means calling. Suited wheel aces like A5s keep their straight and flush terms even as the aggressor, which is what makes them natural bluffs. An earlier model, $R$ = position × hand class with a shrink of the whole factor toward 1 in shallow pots, barely depended on role, and in 3-bet pots it pulled everything toward raw equity. The solver then built linear re-raising ranges: small pairs looked like good 3-bets, and A5s and 76s lost their edge.
 
-**Neutral setting.** With $\phi = \eta = \varsigma = \delta = \lambda = \beta = \iota = 0$ and $\kappa = 0$, $H_i = 1$ and $R_i = \alpha_{\text{ip}}$ or $\alpha_{\text{oop}}$: a position-only model.
+**Neutral setting.** With $\phi = \eta = \varsigma = \delta = \lambda = \beta = \iota = 0$, $\kappa = 0$ and $\psi = \xi = 1$, $H_i = 1$ and $R_i = \alpha_{\text{ip}}$ or $\alpha_{\text{oop}}$: a position-only model.
 
-The fitted parameters are $\theta = (\alpha_{\text{oop}}, \phi, \eta, \varsigma, \delta, \lambda, \kappa, \iota, \beta)$, with $\alpha_{\text{ip}} = 1$ fixing the scale. In code they are the `RealizationConfig` fields `oop, flush, conn, set, dom, low, spr, init, pairLow`, with `ip` = $\alpha_{\text{ip}}$. The functions `straights()` and `domination()` in `utility.h` compute the features.
+The fitted parameters are $\theta = (\alpha_{\text{oop}}, \phi, \eta, \varsigma, \delta, \lambda, \kappa, \iota, \beta, \psi, \xi)$, with $\alpha_{\text{ip}} = 1$ fixing the scale. In code they are the `RealizationConfig` fields `oop, flush, conn, set, dom, low, spr, init, pairLow, oopCall, callerShrink`, with `ip` = $\alpha_{\text{ip}}$. The functions `straights()` and `domination()` in `utility.h` compute the features.
 
 ## 4. Fitting the realization parameters
 

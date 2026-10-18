@@ -32,11 +32,11 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 BUILD = os.path.join(ROOT, "build")
 # Start point = current defaults in utility.h; step = initial search step per parameter.
-START = {"oop": 0.7, "flush": 0.15, "conn": 0.05, "set": 0.1, "dom": 0.1, "low": 0.03, "spr": 3.0, "init": 0.25, "pairLow": 0.02}
+START = {"oop": 0.7, "flush": 0.15, "conn": 0.05, "set": 0.1, "dom": 0.1, "low": 0.03, "spr": 3.0, "init": 0.25, "pairLow": 0.02, "oopCall": 1.0, "callerShrink": 0.0}
 # Sanity bands on open % (validation.md: UTG mid-teens, BTN in the 40s); PENALTY per point outside.
 BANDS = {"UTG": (13.0, 18.0), "BTN": (40.0, 50.0)}
 PENALTY = 0.005
-STEP = {"oop": 0.05, "flush": 0.02, "conn": 0.01, "set": 0.03, "dom": 0.02, "low": 0.01, "spr": 1.0, "init": 0.05, "pairLow": 0.01}
+STEP = {"oop": 0.05, "flush": 0.02, "conn": 0.01, "set": 0.03, "dom": 0.02, "low": 0.01, "spr": 1.0, "init": 0.05, "pairLow": 0.01, "oopCall": 0.1, "callerShrink": 0.1}
 BOARDS = 25  # multiway equity boards per estimate; K=25 is within noise of K=100 (validation.md)
 
 

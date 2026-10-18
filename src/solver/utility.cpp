@@ -31,10 +31,12 @@ double realization(const RealizationConfig& rc, bool lastToAct, bool raiser, dou
     int hi = std::max(a.rank, b.rank);
     bool pair = a.rank == b.rank, suited = a.suit == b.suit;
     double g = rc.spr > 0 ? spr / (spr + rc.spr) : 1;
-    double pos = lastToAct ? rc.ip : 1 - (1 - rc.oop) * g;
-    double h = 1 + rc.flush * suited + rc.conn * straights(a, b) * g + rc.set * pair * g -
-               rc.dom * domination(a, b) * !raiser - rc.low * (12 - hi) * (!pair && !suited) -
-               rc.pairLow * (12 - hi) * pair;
+    bool oopCaller = !lastToAct && !raiser;
+    double fade = oopCaller ? rc.callerShrink * g + 1 - rc.callerShrink : g;
+    double pos = lastToAct ? rc.ip : 1 - (1 - rc.oop) * fade;
+    double play = rc.flush * suited + rc.conn * straights(a, b) * g + rc.set * pair * g;
+    double h = 1 + play * (oopCaller ? rc.oopCall : 1) - rc.dom * domination(a, b) * !raiser -
+               rc.low * (12 - hi) * (!pair && !suited) - rc.pairLow * (12 - hi) * pair;
     return std::max(pos * h * (raiser ? 1 + rc.init : 1), 0.05);
 }
 

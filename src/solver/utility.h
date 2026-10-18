@@ -14,7 +14,8 @@ namespace pf {
 // and the pot depth. Fold equity and blockers are exact in the solver already (real cards are dealt),
 // so there are deliberately no blocker terms. With g = SPR / (SPR + spr) (1 if spr = 0):
 //   P = lastToAct ? ip : 1 - (1 - oop) * g                    position matters less shallow
-//   H = 1 + flush * suited + conn * straights * g + set * pair * g
+//       (OOP callers: g is replaced by callerShrink * g + 1 - callerShrink)
+//   H = 1 + (flush * suited + conn * straights * g + set * pair * g) * (oopCall for OOP callers, else 1)
 //         - dom * domination * (caller) - low * (12 - hi) * (offsuit non-pair) - pairLow * (12 - hi) * pair
 //   R = max(P * H * (1 + init * raiser), 0.05)
 // Starting values, to be fit by src/tools/tune.py. All zero but ip/oop (and spr = 0) = position-only.
@@ -29,6 +30,9 @@ struct RealizationConfig {
     double spr = 3;            // pot depth: SPR at which g = 1/2; 0 = depth-independent (g = 1)
     double init = 0.25;        // R *= 1 + init for the last raiser
     double pairLow = 0.02;     // pairs: per rank below aces (overcards), at any depth
+    // Out-of-position callers (not last to act, not the last raiser); 1 = off, the same as everyone else.
+    double oopCall = 1;        // scales their playability bonuses (flush, conn, set): no position, no initiative
+    double callerShrink = 0;   // their position penalty fades with depth as 1 - (1 - oop) * (callerShrink * g + 1 - callerShrink)
 };
 
 // Number of 5-card straights (A-2-3-4-5 through T-J-Q-K-A) containing both ranks; 0 for pairs.

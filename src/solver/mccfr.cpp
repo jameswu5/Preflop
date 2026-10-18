@@ -41,13 +41,29 @@ std::array<float, 3> Solver::regretMatch(int node, int bucket, bool shared) cons
     return s;
 }
 
-double Solver::traverse(const Hand& h, int node, int traverser, std::mt19937& rng, bool shared) {
-    if (h.done()) return utility(h, eq_, rng, sc_.flopBoards, sc_.realization)[traverser];
+double Solver::traverse(const Hand& h, int node, int traverser, std::mt19937& rng, bool shared,
+                        EquityCache& cache) {
+    if (h.done()) {
+        std::array<bool, NPOS> live{};
+        int mask = 0, n = 0;
+        for (int p = 0; p < NPOS; ++p)
+            if (!h.folded(p)) live[p] = true, mask |= 1 << p, ++n;
+        std::array<double, NPOS> eq{};
+        if (n > 1) {
+            int ai = allIn(h);
+            if (!(cache.valid[ai] >> mask & 1)) {
+                eq_.compute(h.cards, live, rng, ai ? 1 : sc_.flopBoards, cache.eq[ai][mask]);
+                cache.valid[ai] |= uint64_t(1) << mask;
+            }
+            eq = cache.eq[ai][mask];
+        }
+        return payoffs(h, eq, sc_.realization)[traverser];
+    }
     int p = tree_.actor[node];
     auto step = [&](Act a) {
         Hand c = h;
         c.apply(a);
-        return traverse(c, tree_.next[node][int(a)], traverser, rng, shared);
+        return traverse(c, tree_.next[node][int(a)], traverser, rng, shared, cache);
     };
     if (p < sc_.rootFolds) return step(Act::Fold);
 
@@ -75,7 +91,8 @@ double Solver::traverse(const Hand& h, int node, int traverser, std::mt19937& rn
 
 void Solver::iterate(long t, std::mt19937& rng, bool shared) {
     Hand h(rng, cfg_);
-    traverse(h, 0, sc_.rootFolds + int(t % (NPOS - sc_.rootFolds)), rng, shared);
+    EquityCache cache;  // eq arrays are only read once marked valid, so no need to zero them
+    traverse(h, 0, sc_.rootFolds + int(t % (NPOS - sc_.rootFolds)), rng, shared, cache);
 }
 
 void Solver::discount(int threads) {
@@ -128,7 +145,7 @@ Strategy Solver::average() const {
 
 // File: "PFCK" u32 version, Config, SolverConfig (raw; they hold only doubles/ints, no padding),
 // i64 iteration, u32 rng-state length + mt19937 text state, then regret and strategy sums.
-static constexpr uint32_t CK_VERSION = 5;  // 5: Config.rake/rakeCap
+static constexpr uint32_t CK_VERSION = 6;  // 6: RealizationConfig.oopCall/callerShrink
 static_assert(sizeof(Config) % sizeof(double) == 0 && sizeof(RealizationConfig) % sizeof(double) == 0 &&
                   sizeof(SolverConfig) == 2 * sizeof(int) + sizeof(long) + sizeof(RealizationConfig),
               "configs are compared bytewise; keep them free of padding");

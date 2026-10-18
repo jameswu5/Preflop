@@ -89,7 +89,10 @@ D6() {  # sanity metrics of the shipped Scratch solve, from a copy of its checkp
     cp "$DATA/6max.ck" "$TMP/6max_copy.ck"
     "$B/solve" --checkpoint "$TMP/6max_copy.ck" --iters 1 --report --out "$TMP/report.bin" > "$TMP/report.log"
     cmp -s "$TMP/report.bin" "$DATA/strategy_6max.bin" || echo "warning: 6max.ck's average differs from strategy_6max.bin" >&2
-    $GEN sanity "$TMP/report.log" "$OUT/sanity.tex"
+    local s charts=()  # the GTO charts' widths at the same spots, with the reach the charts themselves give
+    for s in lj hj co btn sb; do charts+=("$REF/gto_open_$s.txt" "$REF/gto_vs_open_bb_vs_$s.txt" "$REF/gto_vs_3bet_${s}_vs_bb.txt"); done
+    "$B/dump_range" --strategy "$DATA/strategy_anchored.bin" --charts "$REF" "${charts[@]}" > "$TMP/sanity_gto.dump"
+    $GEN sanity "$TMP/report.log" "$TMP/sanity_gto.dump" "$OUT/sanity.tex"
 }
 
 D7() {  # fixed-strategy fit on the study's samples, and Gate 1 on the current Anchored

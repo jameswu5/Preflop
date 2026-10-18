@@ -54,7 +54,59 @@ D3() {  # range grids (Scratch / GTO / PTO) and Scratch's per-spot distance from
         "$OUT/spot_distance.tex"
 }
 
-ITEMS=${*:-D1 D2 D3}
+val() { "$B/validate" --strategy "$1" --ref "${2:-$REF}"; }
+
+D4() {  # score tables: neutral model, previous and adopted defaults, Gate 2 candidates
+    "$B/solve" --iters 300000000 --threads 8 --seed 1 --out "$TMP/neutral.bin" \
+        --r flush=0 --r conn=0 --r set=0 --r dom=0 --r low=0 --r spr=0 --r init=0 --r pairLow=0 \
+        --r oopCall=1 --r callerShrink=1 --r ipCall=1 --r domPot=0 > "$TMP/neutral.log"
+    val "$TMP/neutral.bin" > "$TMP/val_neutral.txt"
+    val "$DATA/strategy_6max.bin" > "$TMP/val_shipped.txt"
+    val "$DATA/strategy_6max.bin" "$REF/pto" > "$TMP/val_shipped_pto.txt"
+    local g=() c
+    for c in base tau1 tau03 a25 a50 nospr; do
+        local fs=()
+        for f in "$DATA"/gate2/$c.*.bin; do
+            val "$f" > "$TMP/val_gate2_$(basename "$f" .bin).txt"
+            fs+=("$TMP/val_gate2_$(basename "$f" .bin).txt")
+        done
+        g+=("$c=$(IFS=,; echo "${fs[*]}")")
+    done
+    v() { echo "$TMP"/val_gate2_$1.[1-4].txt | tr ' ' ,; }
+    $GEN scores "$OUT/scores.tex" "$OUT/scores.dat" "Position only (neutral)=$TMP/val_neutral.txt" \
+        "Previous defaults=$(v base)" "Adopted defaults=$(v a50)" "Adopted, shipped solve=$TMP/val_shipped.txt"
+    $GEN scores "$OUT/scores_pto.tex" "$OUT/scores_pto.dat" "Adopted, shipped solve=$TMP/val_shipped_pto.txt"
+    $GEN scores "$OUT/gate2.tex" "$OUT/gate2.dat" "${g[@]}"
+}
+
+D5() {  # lock report of the Anchored recipe
+    "$B/solve" --warm "$DATA/6max.ck" --reset-average --iters 300000000 --chunk 100000000 --threads 8 \
+        --lock "$REF" --out "$TMP/anchored.bin" > "$TMP/anchored.log"
+    $GEN lockreport "$TMP/anchored.log" "$REF" "$OUT/lockreport.txt" "$OUT/lockreport.tex"
+}
+
+D6() {  # sanity metrics of the shipped Scratch solve, from a copy of its checkpoint (no iterations run)
+    cp "$DATA/6max.ck" "$TMP/6max_copy.ck"
+    "$B/solve" --checkpoint "$TMP/6max_copy.ck" --iters 1 --report --out "$TMP/report.bin" > "$TMP/report.log"
+    cmp -s "$TMP/report.bin" "$DATA/strategy_6max.bin" || echo "warning: 6max.ck's average differs from strategy_6max.bin" >&2
+    $GEN sanity "$TMP/report.log" "$OUT/sanity.tex"
+}
+
+D7() {  # fixed-strategy fit on the study's samples, and Gate 1 on the current Anchored
+    for tau in 0.3 1 3; do
+        $PY "$ROOT/src/tools/fit_realization.py" "$DATA/samples" --tau $tau > "$OUT/fit_tau$tau.txt"
+    done
+    $GEN fit "$OUT/fit_tau0.3.txt" "$OUT/fit_tau1.txt" "$OUT/fit_tau3.txt" "$OUT/fit_kl.tex" "$OUT/fit_theta.tex"
+    "$B/sample_evs" --check --ess 20000 --strategy "$DATA/strategy_anchored.bin" --equity "$DATA/hu_equity.bin" \
+        --ref "$REF" > "$OUT/gate1.txt"
+    $GEN gate1 "$OUT/gate1.txt" "$OUT/gate1.tex"
+}
+
+D8() {  # realization factor heat grids for four roles, with the shipped solve's RealizationConfig
+    $GEN heat "$DATA/strategy_6max.bin" "$DATA/samples" "$FIG" "$OUT"
+}
+
+ITEMS=${*:-D1 D2 D3 D4 D5 D6 D7 D8}
 for item in $ITEMS; do
     echo "== $item" >&2
     "$item"

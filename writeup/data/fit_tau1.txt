@@ -1,0 +1,14 @@
+loaded 28081626 records, 58179263 live entries, 65 spots in 6.7s
+port check: 28081626 records, max |pay - rec_pay| / net 6.56e-08
+L-BFGS-B: CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH after 42 iterations, 45 evaluations, 21.9s (0.49s per loss + gradient)
+fit: category        spots   KL before  KL after  regret before (bb)  after
+  open                      5      0.5994    0.5927      0.0219             0.0195
+  vs_3bet                  15      1.0357    0.7743      0.8879             0.5408
+  vs_4bet                  15      1.0895    1.0371      0.9130             0.9267
+  vs_5bet                  15      0.3197    0.3197      0.3443             0.3443
+  vs_open                  15      0.8067    0.7406      0.1415             0.0826
+  (balanced)               65      0.7702    0.6929      0.4617             0.3828
+start  ip=1 oop=0.7 flush=0.16 conn=0.05 set=0.1 dom=0.1 low=0.03 spr=3 init=0.2 pairLow=0.01 oopCall=1 callerShrink=0 ipCall=0.8 domPot=0
+fitted ip=1 oop=0.712 flush=0.1737 conn=0.05082 set=0.1462 dom=0.1174 low=0.04895 spr=0.05 init=0.2355 pairLow=0.004248 oopCall=1.045 callerShrink=0 ipCall=0.869 domPot=0.06649
+solve flags: --r ip=1 --r oop=0.712 --r flush=0.1737 --r conn=0.05082 --r set=0.1462 --r dom=0.1174 --r low=0.04895 --r spr=0.05 --r init=0.2355 --r pairLow=0.004248 --r oopCall=1.045 --r callerShrink=0 --r ipCall=0.869 --r domPot=0.06649
+RealizationConfig{1, 0.712, 0.1737, 0.05082, 0.1462, 0.1174, 0.04895, 0.05, 0.2355, 0.004248, 1.045, 0, 0.869, 0.06649}

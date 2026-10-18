@@ -1,0 +1,13 @@
+charted spots where the chart gives up most (mbb per hand dealt; class: better action +mbb).
+Ranked by actions the chart takes there; 'off' = the gain from actions it never takes, valued
+against responders trained only off-path (uniform unless warm-started from Scratch, as Anchored is)
+  FFFRF      BB    70.16  off    0.00 | A9o raise +2.12 A8o raise +2.05 A6o raise +1.71 A3o raise +1.67 AJo raise +1.64
+  FRFFF      BB    54.40  off    0.00 | AJo raise +1.17 AQo raise +1.16 A9o raise +1.15 A8o raise +1.10 A2o raise +1.07
+  FFFFRR     SB    52.16  off    0.00 | KTo raise +1.20 A9o raise +1.18 A5o raise +1.15 A4o raise +1.10 A6o raise +1.09
+  RFRFFF     UTG   48.50  off    0.00 | AJo raise +1.54 AQo raise +1.46 KQo raise +1.12 ATo raise +1.08 KJo raise +1.03
+  RFFRFF     UTG   45.08  off    0.00 | AJo raise +1.70 AQo raise +1.52 ATo raise +1.44 KQo raise +1.38 KJo raise +1.24
+  FRFRFF     HJ    33.22  off    0.00 | AJo raise +1.63 KQo raise +1.48 ATo raise +1.42 KJo raise +1.17 A9o raise +1.01
+  FRRFFF     HJ    28.32  off    0.00 | AJo raise +1.68 KQo raise +1.35 AQo raise +1.18 ATo raise +1.16 KJo raise +1.07
+  FFRFF      BB    26.26  off    0.00 | ATo raise +0.85 A8o raise +0.84 A9o raise +0.84 A7o raise +0.83 AQo raise +0.79
+  FFRRFF     CO    23.74  off    0.00 | AJo raise +1.68 KQo raise +1.56 ATo raise +1.40 KJo raise +1.11 KTo raise +0.81
+  FFFR       SB    22.67  off    6.12 | A9o raise +0.89 A8o raise +0.81 A7o raise +0.79 QJo raise +0.76 QTo raise +0.75

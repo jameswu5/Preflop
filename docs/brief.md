@@ -5,7 +5,7 @@
 Build a preflop-only NLHE 6-max (100bb cash) solver and an interactive trainer on top of it, in **C++** with a **raylib** frontend.
 
 - The solver computes approximate equilibrium strategies for a **deliberately small action tree** (fold / call / raise, with one raise size per level) using Monte Carlo CFR.
-- The trainer deals the user a spot, simulates the 5 other players as bots playing the solved strategies, and after the user's decision shows EV feedback before the next hand.
+- The trainer deals the user a spot, simulates the 5 other players as bots playing the solved strategies (or reference charts), and after the user's decision shows EV feedback before the next hand.
 - The game never goes postflop. Every hand resets all stacks to 100bb.
 - Focus spots: **3-bet, 4-bet and squeeze** (but the solver should solve the whole preflop tree).
 - Output is validated and tuned against externally solved charts (see [validation.md](validation.md)).
@@ -13,15 +13,17 @@ Build a preflop-only NLHE 6-max (100bb cash) solver and an interactive trainer o
 ## Non-goals (v1)
 
 - No postflop solving or abstraction.
-- No rake (add later as a flag).
-- No limping, no multiple sizings, no stack depths other than 100bb.
+- No rake (add later as a flag). *Since added: `Config::rake`, on by default.*
+- No limping, no multiple sizings, no stack depths other than 100bb. *Other stack depths have since been added through config files (`solve --config`).*
 - Not intended to match commercial solvers exactly. It is an equilibrium of *our* simplified game.
+
+Also since implemented: calling squeezes, bet sizes matched to the reference site, and a second solve with the reference charts locked (Anchored, [solver.md](solver.md)), which the trainer can play alongside the charts themselves.
 
 ## Stack
 
 - **C++20** throughout, built with **CMake**.
-- **raylib** + **raygui** for the frontend, pulled in via `FetchContent`.
-- An existing fast hand evaluator (e.g. OMPEval or PokerHandEvaluator) rather than writing one.
+- **raylib** for the frontend, pulled in via `FetchContent` (buttons and panels are drawn directly; no raygui).
+- An existing hand evaluator, PokerHandEvaluator (also via `FetchContent`), rather than writing one.
 - Tests are plain test executables run by CTest. Add a framework (e.g. doctest) only if plain asserts get painful.
 
 ## Difficulty and risks

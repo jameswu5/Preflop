@@ -613,14 +613,15 @@ Color diverge(double v, double mid, double span) {
 struct Inspector {
     const pf::Strategy& st;
     bool ip = true, raiser = false, diff = false;  // diff: show aggressor R minus caller R
+    bool reraised = false;                          // 3-bet+ pot (realization()'s ipCall/domPot)
     double spr = 18;
     bool sliding = false;
     struct Preset {
         std::string name;
         double spr;
-        int ip = -1, raiser = -1;  // -1 = leave as is
+        int ip = -1, raiser = -1, reraised = -1;  // -1 = leave as is
     };
-    std::vector<Preset> presets = {{"Single-raised pot  18", 18}, {"3-bet pot  5", 5}, {"4-bet pot  1.3", 1.3}};
+    std::vector<Preset> presets = {{"Single-raised pot  18", 18, -1, -1, 0}, {"3-bet pot  5", 5, -1, -1, 1}, {"4-bet pot  1.3", 1.3, -1, -1, 1}};
     std::string from;  // spot it was opened from, "" if none
 
     static constexpr float IX = 24, IY = 150, IC = 44;
@@ -641,19 +642,19 @@ struct Inspector {
         if (has(pf::Act::Call)) {
             double to = std::min(h.currentBet(), h.committed(me) + h.stack(me));
             double pot = h.pot() + to - h.committed(me);
-            if (to < stack) presets.push_back({"If " + std::string(POS_NAME[me]) + " calls  " + fmt(std::round((stack - to) / pot * 10) / 10), (stack - to) / pot, meIP, 0});
+            if (to < stack) presets.push_back({"If " + std::string(POS_NAME[me]) + " calls  " + fmt(std::round((stack - to) / pot * 10) / 10), (stack - to) / pot, meIP, 0, h.raises() >= 2});
         }
         if (has(pf::Act::Raise)) {
             double to = h.raiseTo(), pot = h.pot() + (to - h.committed(me)) + (to - h.committed(opp));
-            if (to < stack) presets.push_back({"If the raise is called  " + fmt(std::round((stack - to) / pot * 10) / 10), (stack - to) / pot, meIP, 1});
+            if (to < stack) presets.push_back({"If the raise is called  " + fmt(std::round((stack - to) / pot * 10) / 10), (stack - to) / pot, meIP, 1, h.raises() >= 1});
         }
         auto& p = presets.back();
-        if (presets.size() > 3) spr = p.spr, ip = p.ip, raiser = p.raiser;
+        if (presets.size() > 3) spr = p.spr, ip = p.ip, raiser = p.raiser, reraised = p.reraised;
     }
 
     double r(int b, bool agg) const {
         auto c = cellCards(b);
-        return pf::realization(st.realization(), ip, agg, spr, c[0], c[1]);
+        return pf::realization(st.realization(), ip, agg, spr, c[0], c[1], reraised);
     }
 
     // One frame: input + drawing. Returns false to close.
@@ -672,6 +673,7 @@ struct Inspector {
         if (button({IX + 170, y, 100, 32}, "Caller", !raiser && !diff, 15)) raiser = diff = false;
         if (button({IX + 276, y, 110, 32}, "Aggressor", raiser && !diff, 15)) raiser = true, diff = false;
         if (button({IX + 392, y, 180, 32}, "Aggressor - caller", diff, 15)) diff = true;
+        if (button({IX + 596, y, 120, 32}, "3-bet+ pot", reraised, 15)) reraised = !reraised;
 
         // grid
         int hover = -1;
@@ -704,11 +706,13 @@ struct Inspector {
         DrawTextEx(font, "30", {track.x + track.width - 14, track.y + 14}, 13, 0, GREY);
         y += 70;
         for (auto& p : presets) {
-            bool on = std::abs(spr - p.spr) < 1e-9 && (p.ip < 0 || p.ip == ip) && (p.raiser < 0 || p.raiser == raiser);
+            bool on = std::abs(spr - p.spr) < 1e-9 && (p.ip < 0 || p.ip == ip) && (p.raiser < 0 || p.raiser == raiser) &&
+                      (p.reraised < 0 || p.reraised == reraised);
             if (button({cx, y, 260, 30}, p.name, on, 14)) {
                 spr = p.spr;
                 if (p.ip >= 0) ip = p.ip;
                 if (p.raiser >= 0) raiser = p.raiser, diff = false;
+                if (p.reraised >= 0) reraised = p.reraised;
             }
             y += 36;
         }

@@ -11,29 +11,34 @@
 using namespace pf;
 const Act F = Act::Fold, C = Act::Call, R = Act::Raise;
 
+static std::vector<std::array<Card, 2>> combos() {  // by comboIndex
+    std::vector<std::array<Card, 2>> c(NCOMBOS);
+    for (int i = 0; i < 52; ++i)
+        for (int j = i + 1; j < 52; ++j) c[comboIndex(cardFromIndex(i), cardFromIndex(j))] = {cardFromIndex(i), cardFromIndex(j)};
+    return c;
+}
+static bool disjoint(const std::array<Card, 2>& x, const std::array<Card, 2>& y) {
+    for (Card a : x)
+        for (Card b : y)
+            if (cardIndex(a) == cardIndex(b)) return false;
+    return true;
+}
+
 // Exact exploitability (bb/hand) of a heads-up push/fold strategy at stack S: the average of what
 // a best response gains as SB and as BB. 0 at Nash. Uses the exact HU table, as the solver does.
 static double pushFoldExploitability(const Strategy& s, const std::vector<float>& hu, double S) {
     int sbNode = s.nodeFor({F, F, F, F}), bbNode = s.child(sbNode, R);
-    std::vector<std::array<Card, 2>> combo(NCOMBOS);
-    for (int i = 0; i < 52; ++i)
-        for (int j = i + 1; j < 52; ++j) combo[comboIndex(cardFromIndex(i), cardFromIndex(j))] = {cardFromIndex(i), cardFromIndex(j)};
+    auto combo = combos();
     std::vector<double> push(NCOMBOS), call(NCOMBOS);
     for (int c = 0; c < NCOMBOS; ++c) {
         int b = bucket(combo[c][0], combo[c][1]);
         push[c] = s.probs(sbNode, b)[int(R)], call[c] = s.probs(bbNode, b)[int(C)];
     }
-    auto disjoint = [&](int x, int y) {
-        for (Card a : combo[x])
-            for (Card b : combo[y])
-                if (cardIndex(a) == cardIndex(b)) return false;
-        return true;
-    };
     double brSB = 0, brBB = 0;
     for (int x = 0; x < NCOMBOS; ++x) {  // x = SB combo for brSB, BB combo for brBB
         double pushEV = 0, sbFoldGain = 0, callEV = 0, foldEV = 0;
         for (int y = 0; y < NCOMBOS; ++y) {
-            if (!disjoint(x, y)) continue;
+            if (!disjoint(combo[x], combo[y])) continue;
             double e = hu[size_t(x) * NCOMBOS + y];  // equity of x vs y
             pushEV += call[y] * (e * 2 * S - S) + (1 - call[y]) * 1;  // SB x pushes into BB y
             sbFoldGain += (1 - push[y]) * 0.5;                        // SB y folds to BB x
@@ -162,6 +167,43 @@ int main() {
         double expl = pushFoldExploitability(s.average(), hu, 10);
         std::printf("  push/fold 10bb, 4 threads: exploitability %.4f bb/hand\n", expl);
         assert(expl < 0.003);
+    }
+    {  // chart lock: SB shoves any two; that stays fixed, and BB best-responds to it
+        Strategy chart(pf10);
+        int sbNode = chart.nodeFor({F, F, F, F}), bbNode = chart.child(sbNode, R);
+        std::vector<uint8_t> mask(size_t(chart.tree().size()) * NBUCKETS);
+        for (int b = 0; b < NBUCKETS; ++b) chart.probs(sbNode, b) = {0, 0, 1}, mask[size_t(sbNode) * NBUCKETS + b] = 1;
+        Solver s(pf10, sc, eq, 4);
+        s.lock(chart, mask);
+        s.run(400000);
+        Strategy avg = s.average();
+        auto combo = combos();
+        std::vector<double> eqSum(NBUCKETS), n(NBUCKETS);  // BB's mean equity vs any two, per class
+        for (int x = 0; x < NCOMBOS; ++x)
+            for (int y = 0; y < NCOMBOS; ++y)
+                if (disjoint(combo[x], combo[y])) {
+                    int b = bucket(combo[x][0], combo[x][1]);
+                    eqSum[b] += hu[size_t(x) * NCOMBOS + y], ++n[b];
+                }
+        int decisive = 0;
+        for (int b = 0; b < NBUCKETS; ++b) {
+            assert(avg.probs(sbNode, b) == (std::array<float, 3>{0, 0, 1}));
+            double e = eqSum[b] / n[b], call = avg.probs(bbNode, b)[int(C)];  // calling 9 to win 20: needs 45%
+            if (std::fabs(e - 0.45) > 0.03) assert(e > 0.45 ? call > 0.9 : call < 0.1), ++decisive;
+        }
+        assert(decisive > 100);
+
+        Strategy aaFolds(pf10);  // lock only AA, to fold: the regret report flags it
+        int aa = bucketFromName("AA"), kk = bucketFromName("KK");
+        std::fill(mask.begin(), mask.end(), 0);
+        aaFolds.probs(sbNode, aa) = {1, 0, 0}, mask[size_t(sbNode) * NBUCKETS + aa] = 1;
+        Solver t(pf10, sc, eq, 4);
+        t.lock(aaFolds, mask);
+        t.run(200000);
+        auto ra = t.averageRegret(sbNode, aa), rk = t.averageRegret(sbNode, kk);  // AA shove: ~3.8bb x 6/1326
+        std::printf("  locked AA fold: shove regret %.4f bb/hand (KK, solved: %.4f)\n", ra[int(R)], std::max(rk[0], rk[2]));
+        assert(t.average().probs(sbNode, aa)[int(F)] == 1 && t.average().probs(sbNode, kk)[int(R)] > 0.99);
+        assert(ra[int(R)] > 0.01 && ra[int(R)] > 20 * std::max({rk[0], rk[2], 0.0}));
     }
     {  // converges toward Nash
         Solver s(pf10, sc, eq, 1);

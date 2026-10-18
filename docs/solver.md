@@ -48,3 +48,9 @@ for t in 1..T:
 ## Checkpoints
 
 `--checkpoint file` is resumed if it exists and is rewritten after every chunk. It stores the full state: Config, SolverConfig, iteration count, RNG state, regrets and strategy sums (at the lazy scale above; older versions stored them rescaled and are converted on load). Writes go to a temp file that is then renamed, so a crash never leaves a half-written file. A checkpoint made with a different Config or SolverConfig is refused, with one exception: a different `RealizationConfig` is accepted as a warm start (regrets kept, strategy average and iteration count restarted). `tune.py` uses this, and `--reset-average` forces the same restart explicitly.
+
+## Chart-locked solving
+
+`solve --lock dir` reads every chart in `dir` (the `ref/` format, via `applyCharts`) and fixes those (spot, class) entries: MCCFR plays the chart's probabilities there and never adds to their strategy sums, and the output keeps the chart values. Everything else solves normally, so the uncharted spots become a best response to players who follow the charts. With `scope: listed`, only the listed classes are fixed. The lock is not saved in checkpoints, so pass `--lock` again when resuming.
+
+Regrets at locked entries are still accumulated, as a diagnostic only. They are never played. At the end `solve` ranks the charted spots by how much the chart gives up against the rest of the solve. For each locked class this is the best action's mean regret against the chart's mix, in bb per hand dealt, so frequent spots and classes weigh more. The per-class values are summed over the spot, and the top `--top N` spots (default 10) are printed with their largest classes. Those are the spots where the chart and our payoff model disagree most.

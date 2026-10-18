@@ -29,8 +29,20 @@ public:
     long iterations() const { return t_; }
     const Tree& tree() const { return tree_; }
 
-    // Normalized strategy sums. Forced-fold nodes fold; nodes never reached stay uniform.
+    // Normalized strategy sums. Forced-fold nodes fold, locked entries keep their fixed
+    // probabilities; nodes never reached stay uniform.
     Strategy average() const;
+
+    // Chart-locked solving: at every (node, bucket) with mask[node * NBUCKETS + bucket] set, play
+    // s.probs(node, bucket) (s must share the solver's tree, e.g. from applyCharts) and never update
+    // the strategy sum. Regrets there are still accumulated, but only as a diagnostic: they are
+    // never played, and averageRegret() reads them. Not stored in checkpoints; lock again on resume.
+    void lock(const Strategy& s, const std::vector<uint8_t>& mask);
+    // Mean regret of each action at (node, bucket), in bb per hand dealt, linearly weighted like the
+    // tables: what always switching to it there would have gained, counting how often the cards and
+    // the others bring play there. At a locked entry, max(0, max_a) is how far the fixed play is
+    // from a best response.
+    std::array<double, 3> averageRegret(int node, int bucket) const;
 
     // Full solver state (tables, iteration, RNG), so resuming continues exactly where it stopped.
     // load fails (state unchanged) if the file is malformed or was made with a different Config /
@@ -81,6 +93,8 @@ private:
     // [node * 169 + bucket], scaled by scale(t_): see weight().
     std::vector<std::array<float, 3>> regret_, stratSum_;
     std::vector<Terminal> terminal_;  // [node * 3 + action] where that action ends the hand
+    std::vector<uint8_t> locked_;                 // [node * 169 + bucket]; empty = nothing locked
+    std::vector<std::array<float, 3>> fixed_;     // the locked probabilities, same indexing
 };
 
 }  // namespace pf

@@ -23,7 +23,7 @@ static void play(Hand& h, std::initializer_list<Act> acts) {
 }
 
 int main() {
-    const RealizationConfig rc{1.0, 0.8, 0, 0, 0, 0, 0, 0, 0, 0};  // position-only, so payoffs are hand-checkable
+    const RealizationConfig rc{1.0, 0.8, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0};  // position-only, so payoffs are hand-checkable
     {  // fold-out: UTG opens, everyone folds; UTG wins the blinds
         Hand h(rng, NR);
         play(h, {R, F, F, F, F, F});
@@ -249,9 +249,10 @@ int main() {
             assert(near(total(utility(hd, e, rng, 20, both)), -rake(hd)));
         }
     }
-    {  // ipCall / domPot: only callers in re-raised pots change, and the defaults change nothing
+    {  // ipCall / domPot: only callers in re-raised pots change, and switched off they change nothing
         auto c = [](int rank, int suit) { return Card{uint8_t(rank), uint8_t(suit)}; };
         RealizationConfig def;
+        def.ipCall = 1, def.domPot = 0;
         for (int x = 0; x < 13; ++x)
             for (int y = 0; y <= x; ++y)
                 for (bool ip : {false, true})

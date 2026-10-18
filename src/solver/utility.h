@@ -25,20 +25,20 @@ namespace pf {
 // Keep this struct all doubles: it is compared bytewise and written raw into strategy files.
 struct RealizationConfig {
     double ip = 1, oop = 0.7;  // position factors (ip = last to act postflop among the live players)
-    double flush = 0.15;       // suited hands
+    double flush = 0.16;       // suited hands
     double conn = 0.05;        // per straight using both cards (straights()), scaled by g
     double set = 0.1;          // pairs (set mining), scaled by g
     double dom = 0.1;          // per point of domination() when calling, not when the last raiser
     double low = 0.03;         // offsuit non-pairs: per rank the top card is below an ace
     double spr = 3;            // pot depth: SPR at which g = 1/2; 0 = depth-independent (g = 1)
     double init = 0.25;        // R *= 1 + init for the last raiser
-    double pairLow = 0.02;     // pairs: per rank below aces (overcards), at any depth
+    double pairLow = 0.01;     // pairs: per rank below aces (overcards), at any depth
     // Out-of-position callers (not last to act, not the last raiser); 1 = off, the same as everyone else.
     double oopCall = 1;        // scales their playability bonuses (flush, conn, set): no position, no initiative
     double callerShrink = 0;   // their position penalty fades with depth as 1 - (1 - oop) * (callerShrink * g + 1 - callerShrink)
     // Callers in re-raised (3-bet+) pots. Appended after the fields above: files written before
     // these existed load with the defaults (Strategy::load, Solver::loadCheckpoint).
-    double ipCall = 1;         // scales P for an in-position caller: calling a 3-bet in position is no free ride
+    double ipCall = 0.7;       // scales P for an in-position caller: calling a 3-bet in position is no free ride
     double domPot = 0;         // extra domination penalty per point for any caller
 };
 // Size of RealizationConfig before ipCall/domPot, as stored by older files.

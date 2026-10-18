@@ -15,7 +15,7 @@ cmake -B build
 cmake --build build -j
 ```
 
-This puts `preflop` (the GUI), `solve`, `gen_equity`, `validate`, `audit`, and the tests in `build/`.
+This puts `preflop` (the GUI), `solve`, `gen_equity`, `validate`, `audit`, the analysis tools (`sample_evs`, `gen_features`, `dump_range`, `pushfold_trace`), and the tests in `build/`.
 
 **2. Generate the data files.** They are gitignored, so a fresh clone has none. Skip any whose file `ls data` already shows.
 
@@ -71,4 +71,8 @@ build/preflop data/strategy_hu.bin
 
 ## Validation and tuning
 
-`build/solve --report` prints sanity metrics, `build/validate` compares a strategy with the reference charts in `ref/` (paint or edit them in the GUI with `E`), `build/audit` lists hands that continue while a clearly better hand of the same shape folds, and `src/tools/tune.py` (coordinate search) and `src/tools/bo_tune.py` (Bayesian optimisation) fit the realization model to the charts with fresh solves. See [docs/validation.md](docs/validation.md#tools).
+`build/solve --report` prints sanity metrics, `build/validate` compares a strategy with the reference charts in `ref/` (paint or edit them in the GUI with `E`), `build/audit` lists hands that continue while a clearly better hand of the same shape folds, and `src/tools/tune.py` (coordinate search) and `src/tools/bo_tune.py` (Bayesian optimisation) fit the realization model to the charts with fresh solves. `bo_tune.py` and `fit_realization.py` need `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt`. See [docs/validation.md](docs/validation.md#tools).
+
+## Report
+
+[six-max-preflop-equilibria.pdf](six-max-preflop-equilibria.pdf) describes the method and results. Its figures predate the Bayesian tuning that set the current realization defaults.

@@ -70,12 +70,21 @@ double historyWeight(const Strategy& s, const Spot& sp, const Holes& cards) {
     return w;
 }
 
+int playOn(const Strategy& s, Hand& h, int node, int user, Act a, std::mt19937& rng) {
+    h.apply(a);
+    int edge = node * 3 + int(a);
+    node = s.child(node, a);
+    while (!h.done() && !h.folded(user)) {
+        int n = node;
+        edge = n * 3 + int(step(s, h, node, rng));
+    }
+    return edge;
+}
+
 // User's payoff after taking `a` at the spot, everyone (user included) then following the strategy.
 static double playout(const Strategy& s, const Equity& e, Hand h, int node, int user, Act a,
                       std::mt19937& rng, const RolloutConfig& rc) {
-    h.apply(a);
-    node = s.child(node, a);
-    while (!h.done() && !h.folded(user)) step(s, h, node, rng);
+    playOn(s, h, node, user, a, rng);
     if (h.folded(user)) return -h.committed(user);
     return utility(h, e, rng, rc.flopBoards, rc.rc)[user];
 }

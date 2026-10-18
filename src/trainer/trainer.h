@@ -58,6 +58,11 @@ std::optional<Spot> deal(const Strategy& s, const SpotFilter& f, std::mt19937& r
 // probs(node_k, bucket)[act_k] over prior bot actions. The user's own actions are excluded.
 double historyWeight(const Strategy& s, const Spot& sp, const Holes& cards);
 
+// Takes `a` at `node` (h's state), then everyone, `user` included, follows the strategy until the hand
+// is done or `user` has folded. Returns the last edge played, node * 3 + int(act): at a done() hand
+// that is the terminal edge, which fixes Terminal(h).
+int playOn(const Strategy& s, Hand& h, int node, int user, Act a, std::mt19937& rng);
+
 struct RolloutConfig {
     // Opponent re-deals (every legal action is played out on each): at least `deals`, then more until
     // the effective sample size (sum w)^2 / sum w^2 reaches `minEss`, up to `maxDeals`. Deals the

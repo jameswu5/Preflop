@@ -211,6 +211,21 @@ int main() {
         assert(t.average().probs(sbNode, aa)[int(F)] == 1 && t.average().probs(sbNode, kk)[int(R)] > 0.99);
         assert(ra[int(R)] > 0.01 && ra[int(R)] > 20 * std::max({rk[0], rk[2], 0.0}));
     }
+    {  // entries no average reaches fall back to their regrets: SB locked to fold 72o still learns,
+       // through its own enumeration, to fold 72o to a 3-bet (it used to stay uniform)
+        Config hu;
+        hu.rake = 0;
+        Strategy chart(hu);
+        int open = chart.nodeFor({F, F, F, F}), vs3 = chart.nodeFor({F, F, F, F, R, R}), b72 = bucketFromName("72o");
+        std::vector<uint8_t> mask(size_t(chart.tree().size()) * NBUCKETS);
+        chart.probs(open, b72) = {1, 0, 0}, mask[size_t(open) * NBUCKETS + b72] = 1;
+        Solver s(hu, sc, eq, 6);
+        s.lock(chart, mask);
+        s.run(100000);
+        auto p = s.average().probs(vs3, b72);
+        std::printf("  72o vs 3-bet after a locked fold: f/c/r %.2f/%.2f/%.2f\n", p[0], p[1], p[2]);
+        assert(p[int(F)] > 0.9);
+    }
     {  // converges toward Nash
         Solver s(pf10, sc, eq, 1);
         double uniform = pushFoldExploitability(s.average(), hu, 10);

@@ -78,8 +78,15 @@ int main() {
         Equity e;
         RolloutConfig rc;
         rc.deals = 50000;
-        auto ev = rollout(s, e, *sp, rng, rc);
+        RolloutStats st;
+        auto ev = rollout(s, e, *sp, rng, rc, &st);
         assert(near(ev[int(F)], 0) && near(ev[int(R)], 4));  // the 3-bet takes the 2.5 open + blinds
+        assert(near(st.se[int(F)], 0) && near(st.diffSe[int(R)][int(F)], 0) && st.se[int(C)] > 0);  // F, R are fixed
+
+        RolloutConfig rare = rc;  // only ~6% of deals give UTG a pair: keeps dealing to the target ESS
+        rare.deals = 100, rare.minEss = 500;
+        rollout(s, e, *sp, rng, rare, &st);
+        assert(st.ess >= 500 && st.deals > 2000);
 
         if (e.loadHuTable(DATA_DIR "/hu_equity.bin")) {
             // Call: HU flop vs UTG's pair range, by exact enumeration over UTG combos.
@@ -100,9 +107,9 @@ int main() {
                     e.compute(end.cards, {true, true, false, false, false, false}, rng, 1, eq);
                     num += w * payoffs(end, eq)[HJ], den += w;
                 }
-            ev = rollout(s, e, *sp, rng, rc);
-            std::printf("call EV: rollout %.3f, exact %.3f\n", ev[int(C)], num / den);
-            assert(near(ev[int(C)], num / den, 0.2));
+            ev = rollout(s, e, *sp, rng, rc, &st);
+            std::printf("call EV: rollout %.3f +- %.3f (ESS %.0f), exact %.3f\n", ev[int(C)], st.se[int(C)], st.ess, num / den);
+            assert(near(ev[int(C)], num / den, 0.2) && std::fabs(ev[int(C)] - num / den) < 4 * st.se[int(C)]);
         } else {
             std::puts("no hu_equity.bin: skipping the call-EV enumeration");
         }
@@ -133,6 +140,11 @@ int main() {
         assert(!grade(s, *sp, ev, C, {0.3, 0.1}).correct);      // mixed, but 1.5bb > the default 1bb cap
         assert(!grade(s, *sp, {0, -20.8, 0}, C, {}).correct);   // the reported case: a 20.8bb loss in the mix
         assert(grade(s, *sp, ev, R, {0.5, 0.1}).correct);  // best action
+        RolloutStats noisy;  // a 1.5bb loss is within 2 standard errors of the R - C difference: not a mistake
+        noisy.diffSe[int(R)][int(C)] = 1;
+        assert(grade(s, *sp, ev, C, {0.5, 0.1}, &noisy).correct && near(grade(s, *sp, ev, C, {0.5, 0.1}, &noisy).evLossSe, 1));
+        noisy.diffSe[int(R)][int(C)] = 0.5;
+        assert(!grade(s, *sp, ev, C, {0.5, 0.1}, &noisy).correct);
 
         Stats st;
         st.add(*sp, f);

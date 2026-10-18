@@ -30,7 +30,8 @@ public:
     const Tree& tree() const { return tree_; }
 
     // Normalized strategy sums. Forced-fold nodes fold, locked entries keep their fixed
-    // probabilities; nodes never reached stay uniform.
+    // probabilities. Entries with no strategy sum (reached only when their owner was the traverser,
+    // e.g. after an action it never takes) get the regret-matched strategy: uniform if never reached.
     Strategy average() const;
 
     // Chart-locked solving: at every (node, bucket) with mask[node * NBUCKETS + bucket] set, play

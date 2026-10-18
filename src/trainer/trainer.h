@@ -59,15 +59,29 @@ std::optional<Spot> deal(const Strategy& s, const SpotFilter& f, std::mt19937& r
 double historyWeight(const Strategy& s, const Spot& sp, const Holes& cards);
 
 struct RolloutConfig {
-    int deals = 20000;     // opponent re-deals; every legal action is played out on each deal
+    // Opponent re-deals (every legal action is played out on each): at least `deals`, then more until
+    // the effective sample size (sum w)^2 / sum w^2 reaches `minEss`, up to `maxDeals`. Deals the
+    // history rules out (weight 0) cost almost nothing, so rare spots keep dealing.
+    int deals = 20000;
+    double minEss = 2000;
+    int maxDeals = 2000000;
     int flopBoards = 100;  // boards per multiway flop equity (utility())
     RealizationConfig rc;
+};
+
+// Precision of a rollout. Standard errors of the self-normalized estimate (delta method); every action
+// is played on the same deals, so a difference between two actions is much more precise than either.
+struct RolloutStats {
+    std::array<double, 3> se{};                   // per action
+    std::array<std::array<double, 3>, 3> diffSe{};  // [a][b]: of ev[a] - ev[b]
+    double ess = 0;                               // effective sample size
+    long deals = 0;                               // re-deals made, weight 0 included
 };
 
 // EV in bb per action (indexed by int(Act); NaN if illegal or no deal had weight > 0).
 // Opponents are re-dealt from the deck minus the user's cards and weighted by historyWeight.
 std::array<double, 3> rollout(const Strategy& s, const Equity& e, const Spot& sp, std::mt19937& rng,
-                              const RolloutConfig& rc = {});
+                              const RolloutConfig& rc = {}, RolloutStats* stats = nullptr);
 
 // Correct if evLoss <= maxLoss, or if the solved mix plays the choice at least minFreq of the time
 // and evLoss <= mixedLossCap (so rollout noise or model quirks can't pass a big loss as "mixed").
@@ -75,6 +89,7 @@ struct GradeConfig {
     double minFreq = 0.1;       // the choice counts as part of the solved mix at this frequency
     double maxLoss = 0.1;       // EV loss in bb that is always fine
     double mixedLossCap = 1.0;  // largest EV loss in bb a mixed choice may still have
+    double noiseSe = 2;         // with rollout stats: a loss within this many standard errors is noise
 };
 
 struct Feedback {
@@ -82,11 +97,12 @@ struct Feedback {
     std::array<float, 3> mix;   // solved strategy for the user's hand
     Act choice;
     double evLoss;              // best legal EV - ev[choice]
+    double evLossSe = 0;        // its standard error, when grade() got rollout stats
     bool correct;
 };
 
 Feedback grade(const Strategy& s, const Spot& sp, const std::array<double, 3>& ev, Act choice,
-               const GradeConfig& g = {});
+               const GradeConfig& g = {}, const RolloutStats* stats = nullptr);
 
 struct Stats {
     struct Cell {

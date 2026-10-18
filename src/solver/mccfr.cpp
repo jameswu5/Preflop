@@ -159,6 +159,7 @@ Strategy Solver::average() const {
             if (tree_.actor[n] < sc_.rootFolds) s.probs(n, b) = {1, 0, 0};
             else if (!locked_.empty() && locked_[size_t(n) * NBUCKETS + b]) s.probs(n, b) = fixed_[size_t(n) * NBUCKETS + b];
             else if (sum > 0) s.probs(n, b) = {ss[0] / sum, ss[1] / sum, ss[2] / sum};
+            else s.probs(n, b) = regretMatch(n, b, false);  // only the traverser's own enumeration got here
         }
     return s;
 }

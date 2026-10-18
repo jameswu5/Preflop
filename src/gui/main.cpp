@@ -124,8 +124,10 @@ struct Decision {
     std::string spot;  // non-fold actions before it, e.g. "UTG Raise 2.5, HJ Call 2.5"
     // The user's own choices only:
     std::optional<pf::Spot> sp;              // state before acting, for grading
-    std::future<std::array<double, 3>> ev;   // rollout in flight
+    std::future<std::pair<std::array<double, 3>, pf::RolloutStats>> ev;  // rollout in flight
     std::optional<pf::Feedback> fb;
+    pf::RolloutStats rs;
+    bool lowSample = false;  // rollout hit maxDeals before reaching minEss
 };
 
 // Grid/legend colours per pf::Act (Fold, Call, Raise).
@@ -168,6 +170,7 @@ void feedback(const Decision& d, float x, float y) {
     if (cfg.rake > 0) std::snprintf(hdr, sizeof hdr, "EV (bb, net of %g%% rake, cap %s)", 100 * cfg.rake, fmt(cfg.rakeCap).c_str());
     else std::snprintf(hdr, sizeof hdr, "EV (bb)   no rake");
     DrawTextEx(font, hdr, {x, y}, 15, 0, GREY);
+    if (d.fb && d.lowSample) DrawTextEx(bold, "low sample", {x + MeasureTextEx(font, hdr, 15, 0).x + 10, y + 1}, 14, 0, {230, 160, 60, 255});
     if (!d.fb) {
         DrawTextEx(font, "Computing...", {x, y + 20}, 18, 0, {200, 204, 210, 255});
         return;
@@ -179,13 +182,13 @@ void feedback(const Decision& d, float x, float y) {
         DrawRectangleRounded({x, y + 3, 14, 14}, .3f, 4, ACT_COL[a]);
         DrawTextEx(font, ACT_NAME[a], {x + 22, y}, 18, 0, {200, 204, 210, 255});
         char b[32];
-        std::snprintf(b, sizeof b, "%+.2f%s", f.ev[a], a == int(f.choice) ? "  < you" : "");
+        std::snprintf(b, sizeof b, "%+.2f \u00b1 %.2f%s", f.ev[a], d.rs.se[a], a == int(f.choice) ? "  < you" : "");
         DrawTextEx(bold, b, {x + 110, y}, 18, 0, WHITE);
         y += 24;
     }
-    char b[48];
+    char b[64];
     if (std::isnan(f.evLoss)) std::snprintf(b, sizeof b, "No EV: path never reached");
-    else std::snprintf(b, sizeof b, "%s   EV loss %.2f bb", f.correct ? "Correct" : "Mistake", f.evLoss);
+    else std::snprintf(b, sizeof b, "%s   loss %.2f \u00b1 %.2f bb", f.correct ? "Correct" : "Mistake", f.evLoss, f.evLossSe);
     DrawTextEx(bold, b, {x, y + 6}, 20, 0, std::isnan(f.evLoss) ? GREY : f.correct ? Color{80, 200, 120, 255} : Color{230, 80, 70, 255});
 }
 
@@ -797,7 +800,10 @@ int main(int argc, char** argv) {
 
     auto loadFont = [](const char* path) {
         if (!FileExists(path)) return GetFontDefault();
-        Font f = LoadFontEx(path, 64, nullptr, 0);
+        std::vector<int> cps;  // printable ASCII plus the "±" of the EV display
+        for (int c = 32; c < 127; c++) cps.push_back(c);
+        cps.push_back(0xB1);
+        Font f = LoadFontEx(path, 64, cps.data(), int(cps.size()));
         SetTextureFilter(f.texture, TEXTURE_FILTER_BILINEAR);
         return f;
     };
@@ -833,11 +839,12 @@ int main(int argc, char** argv) {
     auto collect = [&](Decision& d, bool wait) {
         using namespace std::chrono_literals;
         if (!d.ev.valid() || (!wait && d.ev.wait_for(0s) != std::future_status::ready)) return;
+        auto [ev, rs] = d.ev.get();
+        d.rs = rs, d.lowSample = rs.ess < rc.minEss;
+        d.fb = pf::grade(*cur, *d.sp, ev, d.act, {}, &d.rs);
         // On a charted hand the chart decides: correct iff it plays the choice at least 10% of the time.
         auto& c = d.sp->hand.cards[d.sp->user];
-        pf::GradeConfig g;
-        if (modes[mode].charted(d.node, pf::bucket(c[0], c[1]))) g.maxLoss = -1, g.mixedLossCap = 1e9;
-        d.fb = pf::grade(*cur, *d.sp, d.ev.get(), d.act, g);
+        if (modes[mode].charted(d.node, pf::bucket(c[0], c[1]))) d.fb->correct = d.fb->mix[int(d.act)] >= pf::GradeConfig{}.minFreq;
         if (!std::isnan(d.fb->evLoss)) stats[mode].add(*d.sp, *d.fb);
     };
 
@@ -873,7 +880,7 @@ int main(int argc, char** argv) {
         int p = hand->toAct();
         bool allIn = a == pf::Act::Raise && hand->raiseTo() >= hand->committed(p) + hand->stack(p) - 1e-9;
         label[p] = a == pf::Act::Fold ? "Fold" : a == pf::Act::Call ? "Call" : allIn ? "All-in" : "Raise";
-        Decision d{node, p, a, label[p], {}, {}, {}, {}};
+        Decision d{node, p, a, label[p], {}, {}, {}, {}, {}, false};
         std::vector<pf::Step> path;
         for (auto& e : log) {
             path.push_back({e.node, e.act});
@@ -885,7 +892,9 @@ int main(int argc, char** argv) {
             d.sp = pf::Spot{*hand, p, node, path, pf::classify(*cur, path, p)};
             d.ev = std::async(std::launch::async, [&s = *cur, &eq, rc, sp = *d.sp, seed = rng()] {
                 std::mt19937 r(seed);  // each worker owns its rng
-                return pf::rollout(s, eq, sp, r, rc);
+                pf::RolloutStats st;
+                auto ev = pf::rollout(s, eq, sp, r, rc, &st);
+                return std::pair{ev, st};
             });
         }
         log.push_back(std::move(d));

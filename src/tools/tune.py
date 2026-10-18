@@ -16,9 +16,9 @@ a single run's noise is about half the size of a typical improvement, so one run
 winner fresh for N iterations on all cores at the end, the real test before adopting a fit.
 
 Usage: src/tools/tune.py [--checkpoint data/6max.ck] [--schedule 2.5e6] [--rounds 10]
-                         [--jobs N] [--seeds 4] [--holdout text] [--memory B] [--confirm 1e8]
+                         [--jobs N] [--seeds 4] [--holdout text] [--ref dir] [--memory B] [--confirm 1e8]
 --holdout leaves reference files whose name contains `text` out of the fit and scores them separately
-at the end, to check the fit generalizes.
+at the end, to check the fit generalizes (e.g. vs_5bet, _sb). --ref picks the chart directory.
 """
 import argparse
 import concurrent.futures as cf
@@ -31,17 +31,19 @@ import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 BUILD = os.path.join(ROOT, "build")
+REF = os.path.join(ROOT, "ref")  # --ref
 # Start point = current defaults in utility.h; step = initial search step per parameter.
 START = {"oop": 0.7, "flush": 0.15, "conn": 0.05, "set": 0.1, "dom": 0.1, "low": 0.03, "spr": 3.0, "init": 0.25, "pairLow": 0.02, "oopCall": 1.0, "callerShrink": 0.0, "ipCall": 1.0, "domPot": 0.0}
-# Sanity bands on open % (validation.md: UTG mid-teens, BTN in the 40s); PENALTY per point outside.
-BANDS = {"UTG": (13.0, 18.0), "BTN": (40.0, 50.0)}
+# Sanity bands on open %: the reference open width +/- 2.5 points (ref/gto_open_lj.txt 16.3%,
+# gto_open_btn.txt 42.1% of combos); PENALTY per point outside. Re-derive if ref/ changes.
+BANDS = {"UTG": (13.8, 18.8), "BTN": (39.6, 44.6)}
 PENALTY = 0.005
 STEP = {"oop": 0.05, "flush": 0.02, "conn": 0.01, "set": 0.03, "dom": 0.02, "low": 0.01, "spr": 1.0, "init": 0.05, "pairLow": 0.01, "oopCall": 0.1, "callerShrink": 0.1, "ipCall": 0.1, "domPot": 0.02}
 BOARDS = 25  # multiway equity boards per estimate; K=25 is within noise of K=100 (validation.md)
 
 
 def validate(out, flag, text):
-    cmd = [os.path.join(BUILD, "validate"), "--strategy", out] + ([flag, text] if text else [])
+    cmd = [os.path.join(BUILD, "validate"), "--strategy", out, "--ref", REF] + ([flag, text] if text else [])
     val = subprocess.run(cmd, capture_output=True, text=True).stdout
     m = re.search(r"^score ([0-9.]+)", val, re.M)
     if not m:
@@ -106,10 +108,17 @@ def main():
     ap.add_argument("--confirm", type=float, default=1e8, help="fresh-solve iterations for the final check (0 = skip)")
     ap.add_argument("--jobs", type=int, default=os.cpu_count(), help="parallel solves (default: one per core)")
     ap.add_argument("--holdout", default="")
+    ap.add_argument("--ref", default=os.path.join(ROOT, "ref"), help="reference charts (top-level *.txt)")
     ap.add_argument("--memory", type=int, default=0,
                     help="warm-start memory in discount blocks (solve --memory): old regrets keep B/(B+K)")
     args = ap.parse_args()
     schedule = [int(float(x)) for x in args.schedule.split(",")]
+    global REF
+    REF = args.ref
+    refs = [f for f in os.listdir(REF) if f.endswith(".txt")]
+    held = [f for f in refs if args.holdout and args.holdout in f]
+    if not refs or (args.holdout and not 0 < len(held) < len(refs)):
+        ap.error(f"--holdout {args.holdout!r} matches {len(held)} of the {len(refs)} charts in {REF}")
 
     cur, step = dict(START), dict(STEP)
     fallback = None  # (config, score, info) of the best single move behind an unconfirmed combined point

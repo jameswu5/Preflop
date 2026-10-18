@@ -96,24 +96,19 @@ A second, model-internal check is indifference: at an equilibrium, every action 
 
 \paragraph{Overall.} \Cref{tab:scores} summarises the agreement. Against the GTO charts the shipped Scratch solve scores $0.136$: $0.085$ for opens, $0.083$ for responses to an open, $0.166$ facing a 3-bet, $0.244$ facing a 4-bet and $0.101$ facing a 5-bet all-in. Against the PTO charts it also scores $0.136$. The realization model is what makes this possible. With a position-only model, the same solver scores $0.319$, and $0.569$ facing a 4-bet: without hand features, the solve cannot tell a hand that realises well from one that does not, and it builds linear re-raising ranges. The fitted features cut the distance by more than half in every category. The open and flat/3-bet decisions, which are the most frequent in practice, agree best; the deep 4-bet spots, where every decision commits a large share of the stack and the model's postflop approximation carries the most weight, agree worst.
 
-\paragraph{Sanity metrics.} \Cref{tab:sanity} lists the aggregate frequencies that a player would check first. Our open widths are within $1.5$ percentage points of the charts' at every seat, from $17.8\%$ under the gun (chart $16.3\%$) to $41.7\%$ on the button (chart $42.1\%$). The big blind defends more widely against later opens, from $19\%$ of hands against UTG to $35\%$ against BTN and $57\%$ against SB. Openers facing a big blind 3-bet fold about $60$ to $65\%$ and 4-bet about a fifth of their range, and aces and kings always 4-bet.
+\paragraph{Sanity metrics.} \Cref{tab:sanity} lists the aggregate frequencies a player would check first, next to the same quantities computed from the GTO charts. Our open widths are within $1.5$ percentage points of the charts' at every seat, from $17.8\%$ under the gun (chart $16.3\%$) to $41.7\%$ on the button (chart $42.1\%$). The big blind's total defence is close to the charts' as well, widening from $19\%$ of hands against UTG to $35\%$ against the button, but its composition is not: against the button the chart calls $26.4\%$ and 3-bets $13.5\%$, while we call $15.9\%$ and 3-bet $18.7\%$. Likewise, openers facing a big blind 3-bet fold about as often as the chart but 4-bet more and call less, $20.0\%$ against $12.0\%$ on the button. Aces and kings always 4-bet. Our solve, in short, prefers raising to calling more than the charts do, a pattern the next section traces to the realization model.
 
 \begin{table}[ht]
 \centering\footnotesize\setlength{\tabcolsep}{4pt}
-\begin{tabular}{@{}lrrrrrrrrr@{}}
+\resizebox{\linewidth}{!}{\begin{tabular}{@{}lrrrrrrr@{}}
 \toprule
- & & & \multicolumn{3}{c}{BB vs this open (\%)} & \multicolumn{3}{c}{Opener vs BB 3-bet (\%)} & \\
-\cmidrule(lr){4-6}\cmidrule(lr){7-9}
-Seat & Open \% & Chart & Fold & Call & 3-bet & Fold & Call & 4-bet & AA, KK 4-bet \\
+ & & \multicolumn{3}{c}{BB vs this open (\%)} & \multicolumn{3}{c}{Opener vs BB 3-bet (\%)} \\
+\cmidrule(lr){3-5}\cmidrule(lr){6-8}
+Seat & Open \% & Fold & Call & 3-bet & Fold & Call & 4-bet \\
 \midrule
-UTG & 17.8 & 16.3 & 80.9 & 12.1 & 7.0 & 63.9 & 16.8 & 19.3 & 100, 100 \\
-HJ  & 22.0 & 21.2 & 77.7 & 13.7 & 8.7 & 63.1 & 17.7 & 19.2 & 100, 100 \\
-CO  & 28.9 & 27.7 & 73.0 & 14.8 & 12.2 & 64.1 & 16.0 & 19.9 & 100, 100 \\
-BTN & 41.7 & 42.1 & 65.4 & 15.9 & 18.7 & 65.4 & 14.6 & 20.0 & 100, 100 \\
-SB  & 43.3 & 43.4 & 43.1 & 33.6 & 23.3 & 58.0 & 15.3 & 26.8 & 100, 100 \\
-\bottomrule
-\end{tabular}
-\caption{Sanity metrics of the shipped Scratch solve: open frequency per seat (and the GTO chart's), the big blind's response to that open, and the opener's response to a big blind 3-bet, as percentages of the combos that reach the spot.}
+\inputrows{data/sanity.tex}\bottomrule
+\end{tabular}}
+\caption{Sanity metrics of the shipped Scratch solve, with the GTO charts' values in grey: open frequency per seat, the big blind's response to that open, and the opener's response to a big blind 3-bet. Each is a percentage of the actor's range at the spot: every class weighted by its combinations and by the probability that the actor's own earlier actions bring it there (card removal ignored). Facing an open, the big blind has not acted, so these are percentages of all \num{1326} combos.}
 \label{tab:sanity}
 \end{table}
 

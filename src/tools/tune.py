@@ -2,21 +2,24 @@
 """Fits the realization factors (utility.h RealizationConfig) to the reference charts in ref/
 (docs/validation.md "Tuning knobs") by coordinate search.
 
-Each candidate R warm-starts a 6-max solve from a checkpoint (regrets kept, averaging restarted),
-runs some iterations, and is scored with `validate` (category-balanced mean distance over ref/,
-lower is better) plus a penalty for each sanity-check band (validation.md) the opens fall outside.
+Each candidate R is a fresh 6-max solve (no warm start: short warm-started runs ranked candidates
+by how fast they move away from the old solution, not by where they end up), --threads per solve,
+--jobs solves at a time (default one solve on every core, sequentially). It is scored with
+`validate` (category-balanced mean distance over ref/, lower is better) plus a penalty for each
+sanity-check band the opens fall outside.
 
 Each round scores +/- one step on every parameter (plus the current point when its score is not
-known at this iteration count), all candidates at once. Every parameter whose step improved on the
-current point by more than --z standard errors of the paired per-seed differences moves together; the combined point is checked as the next round's current point and
+known at this iteration count). Every parameter whose step beats the current point by more than --z
+standard errors moves together; the combined point is checked as the next round's current point and
 replaced by the best single move if it turns out worse. With no improvement the steps halve.
-Iterations follow --schedule: coarse rounds use few iterations, each halving moves one entry on.
-Each candidate is the mean of --seeds independent runs (2.5M, no warm-start memory by default):
-a single run's noise is about half the size of a typical improvement, so one run can mis-rank. --confirm N re-solves the start point and the
-winner fresh for N iterations on all cores at the end, the real test before adopting a fit.
+Iterations follow --schedule; each halving moves one entry on. Each candidate is the mean of --seeds
+runs, the same seeds for every candidate. The standard error of a difference comes from the run-to-run
+spread pooled over all candidates in the round (with one seed: --noise), because a few paired
+differences give a poor estimate of their own spread, and multithreaded runs aren't reproducible
+anyway. At the end the winner and the start point are re-scored at the last schedule entry.
 
-Usage: src/tools/tune.py [--checkpoint data/6max.ck] [--schedule 2.5e6] [--rounds 10]
-                         [--jobs N] [--seeds 4] [--holdout text] [--ref dir] [--memory B] [--confirm 1e8]
+Usage: src/tools/tune.py [--schedule 5e7,1e8] [--seeds 2] [--rounds 10] [--z 2] [--threads N] [--jobs 1]
+                         [--boards 100] [--holdout text] [--ref dir] [--noise 0.002]
 --holdout leaves reference files whose name contains `text` out of the fit and scores them separately
 at the end, to check the fit generalizes (e.g. vs_5bet, _sb). --ref picks the chart directory.
 """
@@ -39,7 +42,6 @@ START = {"oop": 0.7, "flush": 0.16, "conn": 0.05, "set": 0.1, "dom": 0.1, "low":
 BANDS = {"UTG": (13.8, 18.8), "BTN": (39.6, 44.6)}
 PENALTY = 0.005
 STEP = {"oop": 0.05, "flush": 0.02, "conn": 0.01, "set": 0.03, "dom": 0.02, "low": 0.01, "spr": 1.0, "init": 0.1, "pairLow": 0.01, "oopCall": 0.1, "callerShrink": 0.1, "ipCall": 0.2, "domPot": 0.05}
-BOARDS = 25  # multiway equity boards per estimate; K=25 is within noise of K=100 (validation.md)
 
 
 def validate(out, flag, text):
@@ -52,12 +54,11 @@ def validate(out, flag, text):
 
 
 def evaluate(r, iters, args, tmp, holdout=False, seed=None):
-    """(score, info) for realization config r after `iters` warm-started iterations."""
+    """(score, info) for realization config r after a fresh solve of `iters` iterations."""
     tag = "_".join(f"{k}{v:.4f}" for k, v in sorted(r.items())) + f"_{iters}_{seed}"
     out = os.path.join(tmp, tag + ".bin")
     cmd = [os.path.join(BUILD, "solve"), "--seats", "6", "--iters", str(iters), "--chunk", str(iters),
-           "--warm", args.checkpoint, "--out", out, "--report", "--reset-average", "--memory", str(args.memory),
-           "--boards", str(BOARDS)]
+           "--threads", str(args.threads), "--out", out, "--report", "--boards", str(args.boards)]
     for k, v in r.items():
         cmd += ["--r", f"{k}={v}"]
     if seed is not None:
@@ -78,9 +79,9 @@ def evaluate(r, iters, args, tmp, holdout=False, seed=None):
 
 
 def score_all(cands, iters, args, tmp, holdout=False):
-    """(mean score, info of the first seed, per-seed scores) per candidate, all runs at once."""
+    """(mean score, info of the first seed, per-seed scores) per candidate, --jobs runs at a time."""
     jobs = [(c, 101 * (i + 1)) for c in cands for i in range(args.seeds)]
-    with cf.ThreadPoolExecutor(args.jobs or len(jobs)) as pool:
+    with cf.ThreadPoolExecutor(args.jobs) as pool:
         res = list(pool.map(lambda j: evaluate(j[0], iters, args, tmp, holdout, j[1]), jobs))
     out = []
     for i in range(len(cands)):
@@ -89,28 +90,34 @@ def score_all(cands, iters, args, tmp, holdout=False):
     return out
 
 
-def beats(cand, cur, z):
-    """True if cand's per-seed scores beat cur's (same seeds) by more than z standard errors."""
-    d = [a - b for a, b in zip(cand, cur)]
-    se = statistics.stdev(d) / len(d) ** 0.5 if len(d) > 1 else 0.0
-    return sum(d) / len(d) < -z * se and sum(d) < 0
+def noise(per_seed, default):
+    """Run-to-run standard deviation of a score, pooled over candidates (each a list of per-seed scores)."""
+    groups = [s for s in per_seed if len(s) > 1]
+    if not groups:
+        return default
+    return statistics.fmean(statistics.variance(s) for s in groups) ** 0.5
+
+
+def beats(cand, cur, z, sd):
+    """True if cand's mean score beats cur's by more than z standard errors (run-to-run sd `sd`)."""
+    d = statistics.fmean(cand) - statistics.fmean(cur)
+    return d < 0 and d < -z * sd * (1 / len(cand) + 1 / len(cur)) ** 0.5
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--checkpoint", default=os.path.join(ROOT, "data", "6max.ck"))
-    ap.add_argument("--schedule", default="2.5e6",
+    ap.add_argument("--schedule", default="5e7,1e8",
                     help="iterations per candidate; moves one entry on at each step halving")
     ap.add_argument("--rounds", type=int, default=10)
     ap.add_argument("--z", type=float, default=2.0, help="accept a move only if it wins by z standard errors")
-    ap.add_argument("--seeds", type=int, default=4,
-                    help="seeds averaged per candidate (one 2.5M run is too noisy to rank reliably)")
-    ap.add_argument("--confirm", type=float, default=1e8, help="fresh-solve iterations for the final check (0 = skip)")
-    ap.add_argument("--jobs", type=int, default=os.cpu_count(), help="parallel solves (default: one per core)")
+    ap.add_argument("--seeds", type=int, default=2, help="seeds averaged per candidate")
+    ap.add_argument("--threads", type=int, default=os.cpu_count(), help="threads per solve")
+    ap.add_argument("--jobs", type=int, default=1, help="solves at a time")
+    ap.add_argument("--boards", type=int, default=100, help="multiway flop equity boards (solve --boards)")
+    ap.add_argument("--noise", type=float, default=0.002,
+                    help="run-to-run score sd assumed with --seeds 1 (measured: ~0.002 at 50M, 100 boards)")
     ap.add_argument("--holdout", default="")
     ap.add_argument("--ref", default=os.path.join(ROOT, "ref"), help="reference charts (top-level *.txt)")
-    ap.add_argument("--memory", type=int, default=0,
-                    help="warm-start memory in discount blocks (solve --memory): old regrets keep B/(B+K)")
     args = ap.parse_args()
     schedule = [int(float(x)) for x in args.schedule.split(",")]
     global REF
@@ -138,20 +145,21 @@ def main():
                         cands.append(c)
             t0 = time.time()
             scores = score_all(cands, iters, args, tmp)
+            sd = noise([ps for _, _, ps in scores], args.noise)
             if scored_cur:
                 cur_score, cur_info, cur_seeds = scores[0]
                 cands, scores = cands[1:], scores[1:]
             print(f"round {rnd} ({iters / 1e6:g}M iterations x {args.seeds} seeds, {len(cands) + scored_cur} candidates, "
-                  f"{time.time() - t0:.0f}s): current {cur_score:.4f} ({cur_info})  {cur}")
+                  f"{time.time() - t0:.0f}s, run sd {sd:.4f}): current {cur_score:.4f} ({cur_info})  {cur}")
 
-            if fallback and beats(fallback[3], cur_seeds, 0):  # the combined move was worse than the best single
+            if fallback and beats(fallback[3], cur_seeds, 0, sd):  # the combined move was worse than the best single
                 print(f"  combined point lost to the best single move ({fallback[1]:.4f}); reverting\n", flush=True)
                 cur, cur_score, cur_info, cur_seeds = fallback
                 fallback = None
                 continue
             fallback = None
 
-            better = [(s, c) for (s, _, ps), c in zip(scores, cands) if beats(ps, cur_seeds, args.z)]
+            better = [(s, c) for (s, _, ps), c in zip(scores, cands) if beats(ps, cur_seeds, args.z, sd)]
             if not better:
                 step = {k: v / 2 for k, v in step.items()}
                 halvings += 1
@@ -181,26 +189,15 @@ def main():
                 cur, cur_score = combined, None
             print(flush=True)
 
-        # Final score at the finest iteration count (and held-out score), start R for comparison.
-        finals = [cur] + ([fallback[0]] if fallback else []) + ([START] if args.holdout else [])
+        # Final scores at the last schedule entry (and held-out scores): the winner against the start R.
+        finals = [cur] + ([fallback[0]] if fallback else []) + ([START] if cur != START else [])
         res = score_all(finals, schedule[-1], args, tmp, holdout=bool(args.holdout))
         cur_score, cur_info, _ = res[0]
         if fallback and res[1][0] < cur_score:
             cur, (cur_score, cur_info, _) = fallback[0], res[1]
-        if args.holdout:
-            print(f"start R at {schedule[-1] / 1e6:g}M: {res[-1][1]}")
+        if finals[-1] is START:
+            print(f"start R at {schedule[-1] / 1e6:g}M: {res[-1][0]:.4f} ({res[-1][1]})")
         print(f"final {cur_score:.4f} ({cur_info}) after {(time.time() - t_start) / 60:.1f} min")
-        if args.confirm and cur != START:  # fresh full solves: the real comparison
-            for name, r in (("start", START), ("final", cur)):
-                out = os.path.join(tmp, name + "_confirm.bin")
-                cmd = [os.path.join(BUILD, "solve"), "--seats", "6", "--iters", str(int(args.confirm)), "--chunk",
-                       str(int(args.confirm)), "--threads", str(os.cpu_count()), "--out", out]
-                for k, v in r.items():
-                    cmd += ["--r", f"{k}={v}"]
-                subprocess.run(cmd, capture_output=True, text=True, check=True)
-                held = f", held-out {validate(out, '--only', args.holdout):.4f}" if args.holdout else ""
-                print(f"confirm {name}: {validate(out, '--exclude', args.holdout):.4f} fresh at "
-                      f"{args.confirm / 1e6:g}M{held}", flush=True)
     print("final R:", " ".join(f"--r {k}={v}" for k, v in cur.items()))
 
 

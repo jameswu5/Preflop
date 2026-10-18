@@ -158,31 +158,44 @@ static double strategyChange(const Strategy& a, const Strategy& b, int rootFolds
 
 // Charted spots ranked by how much the locked play gives up: per class, the best action's mean
 // regret against the chart's mix (bb per hand dealt, so frequent spots and classes weigh more),
-// summed over the spot's locked classes.
-static void lockReport(const Solver& s, const std::vector<uint8_t>& locked, int top) {
+// summed over the spot's locked classes. Ranked only by actions the chart takes at the spot: after
+// an action it never takes, the responders only learn from off-path play (uniform on a fresh
+// --lock solve), so that regret is reported apart.
+static void lockReport(const Solver& s, const Strategy& chart, const std::vector<uint8_t>& locked, int top) {
     const Tree& t = s.tree();
     std::vector<std::string> hist(t.size());
     for (int n = 0; n < t.size(); ++n)
         for (int a = 0; a < 3; ++a)
             if (t.next[n][a] > 0) hist[t.next[n][a]] = hist[n] + "FCR"[a];
-    struct Spot { double gain; int node; std::vector<std::pair<double, int>> classes; };  // (gain, bucket * 3 + action)
+    struct Spot { double gain, offGain; int node; std::vector<std::pair<double, int>> classes; };  // (gain, bucket * 3 + action)
     std::vector<Spot> spots;
     for (int n = 0; n < t.size(); ++n) {
-        Spot sp{0, n, {}};
+        Spot sp{0, 0, n, {}};
+        bool played[3] = {};  // the chart takes this action with some locked class here
+        for (int b = 0; b < NBUCKETS; ++b)
+            for (int a = 0; a < 3; ++a) played[a] |= locked[size_t(n) * NBUCKETS + b] && chart.probs(n, b)[a] > 0;
         for (int b = 0; b < NBUCKETS; ++b) {
             if (!locked[size_t(n) * NBUCKETS + b]) continue;
             auto r = s.averageRegret(n, b);
-            int best = int(std::max_element(r.begin(), r.end()) - r.begin());
-            if (r[best] > 0) sp.gain += r[best], sp.classes.push_back({r[best], b * 3 + best});
+            int best = -1, off = -1;
+            for (int a = 0; a < 3; ++a) {
+                int& k = played[a] ? best : off;
+                if (r[a] > 0 && (k < 0 || r[a] > r[k])) k = a;
+            }
+            if (best >= 0) sp.gain += r[best], sp.classes.push_back({r[best], b * 3 + best});
+            if (off >= 0) sp.offGain += r[off];
         }
-        if (!sp.classes.empty()) spots.push_back(std::move(sp));
+        if (sp.gain > 0 || sp.offGain > 0) spots.push_back(std::move(sp));
     }
     std::sort(spots.begin(), spots.end(), [](auto& x, auto& y) { return x.gain > y.gain; });
-    std::printf("\ncharted spots where the chart gives up most (mbb per hand dealt; class: better action +mbb)\n");
+    std::printf("\ncharted spots where the chart gives up most (mbb per hand dealt; class: better action +mbb).\n"
+                "Ranked by actions the chart takes there; 'off' = the gain from actions it never takes, valued\n"
+                "against responders trained only off-path (uniform unless --lock warm-started from a solve)\n");
     for (int i = 0; i < std::min(top, int(spots.size())); ++i) {
         auto& sp = spots[i];
         std::sort(sp.classes.rbegin(), sp.classes.rend());
-        std::printf("  %-10s %-3s %7.2f |", sp.node ? hist[sp.node].c_str() : "(root)", SEAT[t.actor[sp.node]], 1000 * sp.gain);
+        std::printf("  %-10s %-3s %7.2f  off %7.2f |", sp.node ? hist[sp.node].c_str() : "(root)", SEAT[t.actor[sp.node]],
+                    1000 * sp.gain, 1000 * sp.offGain);
         for (int k = 0; k < std::min(5, int(sp.classes.size())); ++k)
             std::printf(" %s %s +%.2f", bucketName(sp.classes[k].second / 3).c_str(),
                         ACT[sp.classes[k].second % 3], 1000 * sp.classes[k].first);
@@ -252,8 +265,8 @@ int main(int argc, char** argv) {
     if (!eq.loadHuTable(table)) std::printf("warning: no %s, heads-up equity will be sampled\n", table.c_str());
     Solver solver(cfg, sc, eq, seed);
     std::vector<uint8_t> locked;
+    Strategy chart(cfg, rc);
     if (!lockDir.empty()) {
-        Strategy chart(cfg, rc);
         std::string err;
         int n = applyCharts(chart, lockDir, &locked, &err);
         if (n < 0) return std::fprintf(stderr, "cannot lock %s: %s\n", lockDir.c_str(), err.c_str()), 2;
@@ -267,6 +280,10 @@ int main(int argc, char** argv) {
     }
     if (std::string err; !warmPath.empty() && !solver.loadCheckpoint(warmPath, &err))
         return std::fprintf(stderr, "cannot warm-start from %s: %s\n", warmPath.c_str(), err.c_str()), 1;
+    if (!locked.empty() && solver.iterations() == 0 && warmPath.empty())
+        std::printf("warning: fresh --lock solve: after actions a chart never takes, the other players stay untrained\n"
+                    "(uniform). Warm-start from an unlocked checkpoint (--warm data/6max.ck --reset-average) to give\n"
+                    "them the model's play there.\n");
     if (resetAvg) solver.resetAverage(memory), iters += solver.iterations();  // --iters counts new iterations
     if (seedGiven) solver.reseed(seed);  // an explicit --seed overrides the checkpoint's RNG state
 
@@ -288,5 +305,5 @@ int main(int argc, char** argv) {
     std::printf("wrote %s\n", outPath.c_str());
     for (auto& h : shows) show(prev, h);
     if (doReport) report(prev, sc.rootFolds);
-    if (!locked.empty()) lockReport(solver, locked, top);
+    if (!locked.empty()) lockReport(solver, chart, locked, top);
 }

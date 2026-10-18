@@ -41,9 +41,21 @@ build/preflop
 
 With no arguments it loads `data/strategy_6max.bin` and `data/hu_equity.bin`, which is what you want. To use another strategy file, pass its path as the first argument, e.g. `build/preflop data/strategy_hu.bin`. A path that doesn't load does not stop the GUI: it prints `could not load <path>, using uniform strategy` in the terminal and the bots play at random. If the charts look uniform, check the terminal for that line.
 
-Keys: `F` / `C` / `R` fold, call, raise · `Space` next hand · `H` review your last decision · `P` spot picker · `S` stats · `E` chart painter · `T` cycle Solver / GTO / PTO mode (from the next hand) · `Esc` close a panel.
+Keys: `F` / `C` / `R` fold, call, raise · `Space` next hand · `H` review your last decision · `P` spot picker · `S` stats · `E` chart painter · `T` cycle Scratch / GTO / PTO mode (from the next hand) · `Esc` close a panel.
 
-The GTO and PTO modes train against the reference charts in `ref/` and `ref/pto/` instead of the solve: bots play the charts, and your decision is correct if the chart plays it at least 10% of the time. Spots without a chart (squeezes, cold 4-bets, ...) use `data/strategy_gto.bin` / `data/strategy_pto.bin` if present (solves locked to those charts, `solve --lock`), otherwise the plain solve, and say so. The terminal prints, per mode, how many charts loaded and over which strategy, or why none did; `T` skips a mode with no charts.
+**Strategies.** Two solves, and two chart sets played over them:
+
+- **Scratch** (`data/strategy_6max.bin`): our solve from scratch, with no reference charts.
+- **Anchored** (`data/strategy_anchored.bin`): the GTO charts in `ref/` frozen, and every spot they don't cover solved by our method against them.
+- **GTO**: the charts in `ref/`, with Anchored in the spots they don't cover (squeezes, cold 4-bets, ...).
+- **PTO**: the charts in `ref/pto/`, with Anchored in the same gaps.
+
+`T` cycles the Scratch, GTO and PTO modes. In GTO and PTO the bots play the charts, and on a charted decision you are correct if the chart plays your action at least 10% of the time; elsewhere, and in Scratch, the usual EV grading applies. Uncharted decisions say "no chart: Anchored solve", and the mix panel says where each hand's mix comes from. Without `strategy_anchored.bin`, GTO and PTO fall back to Scratch in the gaps. The terminal prints what each mode loaded; `T` skips a mode whose charts didn't load. To make the two solves (Scratch first: Anchored warm-starts from its checkpoint):
+
+```
+build/solve --iters 300000000 --threads 8 --checkpoint data/6max.ck --out data/strategy_6max.bin
+build/solve --warm data/6max.ck --reset-average --iters 300000000 --chunk 100000000 --threads 8 --lock ref --out data/strategy_anchored.bin
+```
 
 For a quick heads-up strategy to try (SB vs BB, under a minute):
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Fits the realization factors (utility.h RealizationConfig) to the reference charts in ref/
-(docs/validation.md "Tuning knobs") by coordinate search.
+(docs/validation.md "Tune", docs/math.md §4) by coordinate search.
 
 Each candidate R is a fresh 6-max solve (no warm start: short warm-started runs ranked candidates
 by how fast they move away from the old solution, not by where they end up), --threads per solve,

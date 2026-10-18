@@ -21,7 +21,8 @@ namespace pf {
 //         - (dom + domPot * reraised) * domination * (caller) - low * (12 - hi) * (offsuit non-pair)
 //         - pairLow * (12 - hi) * pair
 //   R = max(P * H * (1 + init * raiser), 0.05)
-// Starting values, to be fit by src/tools/tune.py. All zero but ip/oop (and spr = 0) = position-only.
+// Defaults are the values fitted by src/tools/tune.py (docs/math.md §4). Neutral, position-only: every
+// term 0 but ip/oop, spr = 0, and oopCall = callerShrink = ipCall = 1.
 // Keep this struct all doubles: it is compared bytewise and written raw into strategy files.
 struct RealizationConfig {
     double ip = 1, oop = 0.7;  // position factors (ip = last to act postflop among the live players)
@@ -37,7 +38,7 @@ struct RealizationConfig {
     double oopCall = 1;        // scales their playability bonuses (flush, conn, set): no position, no initiative
     double callerShrink = 0;   // their position penalty fades with depth as 1 - (1 - oop) * (callerShrink * g + 1 - callerShrink)
     // Callers in re-raised (3-bet+) pots. Appended after the fields above: files written before
-    // these existed load with the defaults (Strategy::load, Solver::loadCheckpoint).
+    // these existed load with them neutral, ipCall 1 and domPot 0 (Strategy::load, Solver::loadCheckpoint).
     double ipCall = 0.8;       // scales P for an in-position caller: calling a 3-bet in position is no free ride
     double domPot = 0;         // extra domination penalty per point for any caller
 };

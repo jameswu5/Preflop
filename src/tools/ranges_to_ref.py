@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Convert ref/ranges.md (pokertrainer.se "Cash 100 Simple" charts) into ref/pt_*.txt files for
-validate and tune.py (docs/validation.md "Reference charts"). Re-running regenerates them.
+"""Convert ref/simple/ranges.md (pokertrainer.se "Cash 100 Simple" charts) into ref/simple/pt_*.txt
+(docs/validation.md "Reference charts"). These pure charts are kept for comparison, outside the scored
+top level of ref/: pass `--ref ref/simple` to validate to score against them. Re-running regenerates them.
 
-Usage: src/tools/ranges_to_ref.py [ranges.md] [out dir]   (defaults: ref/ranges.md, ref/)
+Usage: src/tools/ranges_to_ref.py [ranges.md] [out dir]   (defaults: ref/simple/ranges.md, ref/simple/)
 
 Each spot's hand list is checked against the combo count stated in the markdown, so a
 transcription slip fails loudly instead of skewing the fit.
@@ -58,8 +59,8 @@ def parse(text):
 
 
 def main():
-    src = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else "ref/ranges.md")
-    out = pathlib.Path(sys.argv[2] if len(sys.argv) > 2 else "ref")
+    src = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else "ref/simple/ranges.md")
+    out = pathlib.Path(sys.argv[2] if len(sys.argv) > 2 else "ref/simple")
     n, bad = 0, 0
     for cat, hero, villain, acts in parse(src.read_text()):
         name = f"pt_open_{hero}" if cat == "open" else f"pt_{cat}_{hero}_vs_{villain}"

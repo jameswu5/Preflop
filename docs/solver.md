@@ -50,7 +50,7 @@ for t in 1..T:
 - Multiway equity evaluates 7-card hands with an additive key per card (rank digits and suit counts in one integer), so the board's key is summed once and shared by every player; non-flush hands are a table lookup built from PokerHandEvaluator at startup, flushes fall back to it directly. Results are identical to calling the evaluator.
 
 - The tree is built once by walking `Hand` (`Tree` in `strategy.h`): per node, the actor, a legal-action mask and a child index per action (-1 at terminals). `regret` and `strat_sum` are flat `float` arrays of shape `[nodes][169][3]`. Traversal is recursive; the tree is only a few raise levels deep.
-- The final strategy is `strat_sum` normalized per (node, class). `Strategy::save` writes it with the `Config` and `RealizationConfig` it was solved with, so the trainer uses the same rules and payoff model.
+- The final strategy (`Solver::average`) is `strat_sum` normalized per (node, class). Where the sum is zero (reached only through the actor's own enumeration, after an action it never takes), it is the regret-matched strategy instead, uniform only if never reached. Locked entries keep their chart values. `Strategy::save` writes it with the `Config` and `RealizationConfig` it was solved with, so the trainer uses the same rules and payoff model. Strategy files are version 8. Version 7 files, from before `ipCall`/`domPot`, load with those two neutral (1 and 0), the model they were solved with, not today's defaults.
 - `--seats 2|3` solves SB vs BB or BTN/SB/BB on the same tree by forcing the earlier seats to fold at the root. Those nodes are stored as fold = 1.
 
 ## Threads
@@ -59,7 +59,7 @@ for t in 1..T:
 
 ## Checkpoints
 
-`--checkpoint file` is resumed if it exists and is rewritten after every chunk. It stores the full state: Config, SolverConfig, iteration count, RNG state, regrets and strategy sums (at the lazy scale above; older versions stored them rescaled and are converted on load). Writes go to a temp file that is then renamed, so a crash never leaves a half-written file. A checkpoint made with a different Config or SolverConfig is refused, with one exception: a different `RealizationConfig` is accepted as a warm start (regrets kept, strategy average and iteration count restarted). `tune.py` uses this, and `--reset-average` forces the same restart explicitly.
+`--checkpoint file` is resumed if it exists and is rewritten after every chunk. It stores the full state: Config, SolverConfig, iteration count, RNG state, regrets and strategy sums (at the lazy scale above). Checkpoints are version 8. Version 6 stored the tables rescaled and is converted on load, and versions 6 and 7 load with `ipCall`/`domPot` neutral, as for strategy files. Writes go to a temp file that is then renamed, so a crash never leaves a half-written file. A checkpoint made with a different Config (bet sizes, stack, rake, ...) or SolverConfig is refused, and `solve` says which. One exception: a different `RealizationConfig` is accepted as a warm start (regrets kept, strategy average and iteration count restarted). `--warm file` loads a checkpoint without ever writing it, and `--reset-average` forces the same restart explicitly, as in the Anchored recipe.
 
 ## Chart-locked solving
 

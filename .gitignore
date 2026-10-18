@@ -80,3 +80,6 @@ __pycache__/
 
 # Writeup scratch solves (writeup/scripts/make_data.sh)
 writeup/data/tmp/
+
+# macOS
+.DS_Store

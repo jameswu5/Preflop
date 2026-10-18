@@ -98,4 +98,9 @@ private:
     std::vector<std::array<float, 3>> fixed_;     // the locked probabilities, same indexing
 };
 
+// Exact exploitability (bb/hand) of a heads-up push/fold strategy at stack S (Config with
+// stack = open = sbOpen = S, rake 0, solved with rootFolds = 4): the average of what a best response
+// gains as SB and as BB. 0 at Nash. `hu` is data/hu_equity.bin, the exact table the solver uses.
+double pushFoldExploitability(const Strategy& s, const std::vector<float>& hu, double S);
+
 }  // namespace pf

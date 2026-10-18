@@ -24,33 +24,6 @@ static bool disjoint(const std::array<Card, 2>& x, const std::array<Card, 2>& y)
     return true;
 }
 
-// Exact exploitability (bb/hand) of a heads-up push/fold strategy at stack S: the average of what
-// a best response gains as SB and as BB. 0 at Nash. Uses the exact HU table, as the solver does.
-static double pushFoldExploitability(const Strategy& s, const std::vector<float>& hu, double S) {
-    int sbNode = s.nodeFor({F, F, F, F}), bbNode = s.child(sbNode, R);
-    auto combo = combos();
-    std::vector<double> push(NCOMBOS), call(NCOMBOS);
-    for (int c = 0; c < NCOMBOS; ++c) {
-        int b = bucket(combo[c][0], combo[c][1]);
-        push[c] = s.probs(sbNode, b)[int(R)], call[c] = s.probs(bbNode, b)[int(C)];
-    }
-    double brSB = 0, brBB = 0;
-    for (int x = 0; x < NCOMBOS; ++x) {  // x = SB combo for brSB, BB combo for brBB
-        double pushEV = 0, sbFoldGain = 0, callEV = 0, foldEV = 0;
-        for (int y = 0; y < NCOMBOS; ++y) {
-            if (!disjoint(combo[x], combo[y])) continue;
-            double e = hu[size_t(x) * NCOMBOS + y];  // equity of x vs y
-            pushEV += call[y] * (e * 2 * S - S) + (1 - call[y]) * 1;  // SB x pushes into BB y
-            sbFoldGain += (1 - push[y]) * 0.5;                        // SB y folds to BB x
-            callEV += push[y] * (e * 2 * S - S);
-            foldEV += push[y] * -1;
-        }
-        brSB += std::max(pushEV, -0.5 * 1225) / 1225;
-        brBB += (sbFoldGain + std::max(callEV, foldEV)) / 1225;
-    }
-    return (brSB + brBB) / 2 / NCOMBOS;
-}
-
 int main() {
     {  // tree matches the engine along random action sequences
         Tree t;

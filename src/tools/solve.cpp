@@ -18,6 +18,8 @@
 //                as a best response to them; the output keeps the chart probabilities. Not stored in
 //                the checkpoint: pass it again when resuming. Prints the --top N (default 10) charted
 //                spots where the chart gives up the most against the solve (locked-action regret).
+//                The Anchored solve (docs/solver.md) warm-starts it from the Scratch checkpoint:
+//                solve --warm data/6max.ck --reset-average --lock ref --out data/strategy_anchored.bin
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -190,7 +192,7 @@ static void lockReport(const Solver& s, const Strategy& chart, const std::vector
     std::sort(spots.begin(), spots.end(), [](auto& x, auto& y) { return x.gain > y.gain; });
     std::printf("\ncharted spots where the chart gives up most (mbb per hand dealt; class: better action +mbb).\n"
                 "Ranked by actions the chart takes there; 'off' = the gain from actions it never takes, valued\n"
-                "against responders trained only off-path (uniform unless --lock warm-started from a solve)\n");
+                "against responders trained only off-path (uniform unless warm-started from Scratch, as Anchored is)\n");
     for (int i = 0; i < std::min(top, int(spots.size())); ++i) {
         auto& sp = spots[i];
         std::sort(sp.classes.rbegin(), sp.classes.rend());
@@ -282,8 +284,8 @@ int main(int argc, char** argv) {
         return std::fprintf(stderr, "cannot warm-start from %s: %s\n", warmPath.c_str(), err.c_str()), 1;
     if (!locked.empty() && solver.iterations() == 0 && warmPath.empty())
         std::printf("warning: fresh --lock solve: after actions a chart never takes, the other players stay untrained\n"
-                    "(uniform). Warm-start from an unlocked checkpoint (--warm data/6max.ck --reset-average) to give\n"
-                    "them the model's play there.\n");
+                    "(uniform). The Anchored recipe warm-starts from the Scratch checkpoint so they keep the model's\n"
+                    "play: --warm data/6max.ck --reset-average (docs/solver.md).\n");
     if (resetAvg) solver.resetAverage(memory), iters += solver.iterations();  // --iters counts new iterations
     if (seedGiven) solver.reseed(seed);  // an explicit --seed overrides the checkpoint's RNG state
 

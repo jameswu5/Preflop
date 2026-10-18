@@ -79,9 +79,43 @@ A second, model-internal check is indifference: at an equilibrium, every action 
 
 \section{Agreement with the reference charts}\label{sec:res-charts}
 
-\IfFileExists{data/score_table.tex}{\input{data/score_table.tex}}{}
+\begin{table}[ht]
+\centering\footnotesize\setlength{\tabcolsep}{3.5pt}
+\resizebox{\linewidth}{!}{\begin{tabular}{@{}lcllllll@{}}
+\toprule
+ & Seeds & Open & vs open & vs 3-bet & vs 4-bet & vs 5-bet & Overall \\
+\midrule
+\multicolumn{8}{@{}l}{\textit{Against the GTO charts}} \\
+\inputrows{data/scores.tex}\midrule
+\multicolumn{8}{@{}l}{\textit{Against the PTO charts}} \\
+\inputrows{data/scores_pto.tex}\bottomrule
+\end{tabular}}
+\caption{Distance of the Scratch solve to the reference charts by category (lower is better; $0$ is identical play), mean $\pm$ standard deviation over seeds. \enquote{Position only} sets every hand and role term of the realization model to zero (\cref{sec:realization}); \enquote{previous defaults} are the coordinate-search values; \enquote{adopted} are the shipped values (\cref{app:params}).}
+\label{tab:scores}
+\end{table}
 
-\paragraph{Overall.} Against the GTO charts the shipped Scratch solve scores $0.136$ (category-balanced mean distance; $0$ is identical play and $1$ disjoint): $0.085$ for opens, $0.083$ for responses to an open, $0.166$ facing a 3-bet, $0.244$ facing a 4-bet and $0.101$ facing a 5-bet all-in. Against the PTO charts it scores $0.136$ as well. The open and flat/3-bet decisions, which are the most frequent in practice, agree best; the deep 4-bet spots, where every decision commits a large share of the stack and the realization model carries the most weight relative to fold equity, agree worst.
+\paragraph{Overall.} \Cref{tab:scores} summarises the agreement. Against the GTO charts the shipped Scratch solve scores $0.136$: $0.085$ for opens, $0.083$ for responses to an open, $0.166$ facing a 3-bet, $0.244$ facing a 4-bet and $0.101$ facing a 5-bet all-in. Against the PTO charts it also scores $0.136$. The realization model is what makes this possible. With a position-only model, the same solver scores $0.319$, and $0.569$ facing a 4-bet: without hand features, the solve cannot tell a hand that realises well from one that does not, and it builds linear re-raising ranges. The fitted features cut the distance by more than half in every category. The open and flat/3-bet decisions, which are the most frequent in practice, agree best; the deep 4-bet spots, where every decision commits a large share of the stack and the model's postflop approximation carries the most weight, agree worst.
+
+\paragraph{Sanity metrics.} \Cref{tab:sanity} lists the aggregate frequencies that a player would check first. Our open widths are within $1.5$ percentage points of the charts' at every seat, from $17.8\%$ under the gun (chart $16.3\%$) to $41.7\%$ on the button (chart $42.1\%$). The big blind defends more widely against later opens, from $19\%$ of hands against UTG to $35\%$ against BTN and $57\%$ against SB. Openers facing a big blind 3-bet fold about $60$ to $65\%$ and 4-bet about a fifth of their range, and aces and kings always 4-bet.
+
+\begin{table}[ht]
+\centering\footnotesize\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lrrrrrrrrr@{}}
+\toprule
+ & & & \multicolumn{3}{c}{BB vs this open (\%)} & \multicolumn{3}{c}{Opener vs BB 3-bet (\%)} & \\
+\cmidrule(lr){4-6}\cmidrule(lr){7-9}
+Seat & Open \% & Chart & Fold & Call & 3-bet & Fold & Call & 4-bet & AA, KK 4-bet \\
+\midrule
+UTG & 17.8 & 16.3 & 80.9 & 12.1 & 7.0 & 63.9 & 16.8 & 19.3 & 100, 100 \\
+HJ  & 22.0 & 21.2 & 77.7 & 13.7 & 8.7 & 63.1 & 17.7 & 19.2 & 100, 100 \\
+CO  & 28.9 & 27.7 & 73.0 & 14.8 & 12.2 & 64.1 & 16.0 & 19.9 & 100, 100 \\
+BTN & 41.7 & 42.1 & 65.4 & 15.9 & 18.7 & 65.4 & 14.6 & 20.0 & 100, 100 \\
+SB  & 43.3 & 43.4 & 43.1 & 33.6 & 23.3 & 58.0 & 15.3 & 26.8 & 100, 100 \\
+\bottomrule
+\end{tabular}
+\caption{Sanity metrics of the shipped Scratch solve: open frequency per seat (and the GTO chart's), the big blind's response to that open, and the opener's response to a big blind 3-bet, as percentages of the combos that reach the spot.}
+\label{tab:sanity}
+\end{table}
 
 \paragraph{Range charts.} \Cref{fig:grids-a,fig:grids-b} place our ranges next to the GTO charts for six representative spots; \cref{app:charts} has more, including the PTO charts. Cells are filled left to right in proportion to the raise, call and fold frequencies; white cells are hands the player never brings to the spot. The opens agree closely (\cref{fig:grids-a}): the same hands open, and the differences are at the edges of the range. Facing an open, the cold-calling spot BTN versus CO agrees well, while BB versus BTN is among the weakest spots of its category. There our solve 3-bets the weak offsuit aces (A9o--A2o) and the middle pairs (99--66), which the chart flats, and folds offsuit connected hands such as K9o--T9o, which the chart defends. Facing a 3-bet and a 4-bet (\cref{fig:grids-b}) the overall structure matches, value hands raising and the strongest calling, but the frequencies of the marginal hands differ more.
 
@@ -105,24 +139,81 @@ A second, model-internal check is indifference: at an equilibrium, every action 
 
 \section{Where the model and the charts disagree}\label{sec:res-disagree}
 
-\IfFileExists{data/lockreport_table.tex}{\input{data/lockreport_table.tex}}{}
+The Anchored solve (\cref{sec:two-solves}) plays the GTO charts exactly and solves everything else around them. Its lock report ranks the charted spots by how much the chart's play gives up, in our model, against the best response to everything else (\cref{tab:lockreport}). Two things stand out. First, the losses are small: the largest is $70$ milli-big-blinds per hand dealt, summed over all the classes of the spot, and no single class gives up more than about $2$. Second, they are remarkably uniform in kind. In every one of the ten spots the better action is a \emph{raise}, and the classes involved are offsuit aces and offsuit broadways: A9o--A6o defending the big blind against the button, AJo and AQo against a hijack open, and AJo, AQo, ATo and KQo 4-betting against a 3-bet.
+
+\begin{table}[ht]
+\centering\footnotesize
+\begin{tabular}{@{}llrl@{}}
+\toprule
+Spot & Actor & Given up (mbb/hand) & Largest classes (better action, gain in mbb/hand) \\
+\midrule
+\inputrows{data/lockreport.tex}\bottomrule
+\end{tabular}
+\caption{The ten charted spots where the GTO chart gives up the most against the rest of the Anchored solve, in our model. The loss is the best action's mean regret against the chart's mix, in thousandths of a big blind per hand dealt, summed over the spot's classes, so frequent spots and classes weigh more.}
+\label{tab:lockreport}
+\end{table}
+
+This is a systematic disagreement, and the structure of the realization model suggests where it comes from. The low-card term $\lambda(12-r_1)$ is zero for any hand containing an ace, so weak offsuit aces are penalised only through domination, and the domination term applies only to \emph{callers}. As the raiser, the same hand loses the domination penalty and gains the initiative bonus $\iota$, while its ace blocks the opponents' strongest hands exactly, since the solver deals real cards. The model therefore makes raising, rather than calling or folding, the natural use of these hands, more so than the charts do, and the effect is largest in the deep 3-bet and 4-bet pots. A kicker-aware term that also applies to the raiser, or a domination penalty that depends on the opponent's range rather than only on the role, are the natural fixes. The same pattern explains the largest differences in \cref{fig:grids-a}.
 
 \section{The fixed-strategy fit}\label{sec:res-fit}
 
 This section reports the study of \cref{sec:fixed-fit}: fitting $\theta$ without a solve per candidate, by holding every strategy fixed at the Anchored solve and asking which $\theta$ makes the charts' own mixes look like (quantal) best responses. The study was run with the parameters found by coordinate search (\cref{app:params}) and the Anchored solve made with them.
 
-\paragraph{Gate 1: the sampler.} The sampled records must reproduce the trainer's rollouts, which are computed independently. \Cref{tab:gate1} compares the expected values rebuilt from the records with \texttt{rollout()} for $13$ actions at $8$ spot--class pairs, chosen to include multiway flops and all-ins. The largest discrepancy is $2.2$ combined standard errors, consistent with sampling noise; folds agree exactly. The working sample, at an effective sample size of $5000$ per spot--class pair, holds $2.8\times 10^7$ flop records over \num{1029} flop terminals and \num{5058} spot--class pairs, and is generated in $20$ seconds. The numpy port of the payoff reproduces the C++ payoffs to $7\times 10^{-8}$ of the pot, and one evaluation of the loss and its analytic gradient takes about half a second.
+\paragraph{Gate 1: the sampler.} The sampled records must reproduce the trainer's rollouts, which are computed independently. \Cref{tab:gate1} compares the expected values rebuilt from the records with \texttt{rollout()} for $13$ actions at $8$ spot--class pairs, chosen to include multiway flops and all-ins, here regenerated on the current Anchored solve. The largest discrepancy is $1.8$ combined standard errors ($2.2$ in the study's own run), consistent with sampling noise; folds agree exactly and are omitted. The working sample, at an effective sample size of $5000$ per spot--class pair, holds $2.8\times 10^7$ flop records over \num{1029} flop terminals and \num{5058} spot--class pairs, and is generated in $20$ seconds. The numpy port of the payoff reproduces the C++ payoffs to $7\times 10^{-8}$ of the pot, and one evaluation of the loss and its analytic gradient takes about half a second.
 
-\IfFileExists{data/gate1_table.tex}{\input{data/gate1_table.tex}}{}
+\begin{table}[ht]
+\centering\small
+\begin{tabular}{@{}lllrrr@{}}
+\toprule
+Spot & Class & Action & EV from records (bb) & Rollout EV (bb) & $z$ \\
+\midrule
+\inputrows{data/gate1.tex}\bottomrule
+\end{tabular}
+\caption{Gate 1: expected values rebuilt from the sampler's records against the trainer's independent rollouts, both at an effective sample size of $\num{20000}$, with standard errors; $z$ is the difference over the combined standard error.}
+\label{tab:gate1}
+\end{table}
 
 \paragraph{The fit.} At temperature $\tau = 1\bb$, L-BFGS-B converges in $42$ iterations ($21$ seconds). The balanced KL divergence falls from $0.770$ to $0.693$ and the charts' regret from $0.462$ to $0.383\bb$ (\cref{tab:fit}). The gains are concentrated in the responses to a 3-bet (regret $0.89 \to 0.54\bb$) and to an open ($0.14 \to 0.08\bb$). Facing a 4-bet nothing improves ($0.91\bb$ before and after), and facing a 5-bet nothing can, since those spots end in all-ins whose payoffs do not involve $\real$. The fitted parameters move consistently across temperatures (\cref{tab:fit-thetas}): the flush, set, domination, low-card and re-raised-domination terms all grow. The exception is the depth half-life $\kappa$, which runs to its lower bound for $\tau \le 1$, switching the depth fade off, but stays near its old value at $\tau = 3$.
 
-\IfFileExists{data/fit_table.tex}{\input{data/fit_table.tex}}{}
-\IfFileExists{data/fit_thetas.tex}{\input{data/fit_thetas.tex}}{}
+\begin{table}[ht]
+\centering\small
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+ & & \multicolumn{2}{c}{KL divergence} & \multicolumn{2}{c}{Chart regret (bb)} \\
+\cmidrule(lr){3-4}\cmidrule(lr){5-6}
+Category & Spots & before & after & before & after \\
+\midrule
+\inputrows{data/fit_kl.tex}\bottomrule
+\end{tabular}
+\caption{The fixed-strategy fit at $\tau = 1$: the loss (KL divergence of the chart mixes from the logit response) and the charts' regret, by category, at the starting point and at the fitted $\hat\theta$, with all strategies held at the Anchored solve.}
+\label{tab:fit}
+\end{table}
+
+\begin{table}[ht]
+\centering\small
+\begin{tabular}{@{}lllll@{}}
+\toprule
+Parameter & Start & $\tau = 0.3$ & $\tau = 1$ & $\tau = 3$ \\
+\midrule
+\inputrows{data/fit_theta.tex}\bottomrule
+\end{tabular}
+\caption{Fitted realization parameters at three temperatures ($\alpha_{\mathrm{ip}} = 1$ fixed). The depth half-life $\kappa$ runs to its lower bound $0.05$ for $\tau \le 1$.}
+\label{tab:fit-thetas}
+\end{table}
 
 \paragraph{Gate 2: full solves.} The fit is only useful if it improves the real objective, the distance of a fresh Scratch solve to the charts. \Cref{tab:gate2} reports full $3\times 10^8$-iteration solves for each candidate. The fitted parameters make the solve \emph{worse}: $0.149$ and $0.151$ at $\tau = 1$, and $0.148$ and $0.145$ at $\tau = 0.3$, against a mean of $0.136$ for the starting point. The per-category breakdown shows why. The fit improves the opens and the responses to an open, as it promised, but the responses to a 4-bet deteriorate from about $0.23$ to $0.29$, which more than cancels the gains.
 
-\IfFileExists{data/gate2_table.tex}{\input{data/gate2_table.tex}}{}
+\begin{table}[ht]
+\centering\footnotesize\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{@{}lcllllll@{}}
+\toprule
+Candidate & Seeds & Open & vs open & vs 3-bet & vs 4-bet & vs 5-bet & Overall \\
+\midrule
+\inputrows{data/gate2.tex}\bottomrule
+\end{tabular}
+\caption{Gate 2: distance to the GTO charts of fresh $3\times 10^8$-iteration Scratch solves for each candidate, mean $\pm$ standard deviation over seeds. The partial moves interpolate linearly between the previous defaults and the fit at $\tau = 1$.}
+\label{tab:gate2}
+\end{table}
 
 \paragraph{Partial moves.} If the fit points in a useful direction but overshoots, a smaller step may help. Moving a quarter of the way changes nothing measurable. Moving halfway gives $0.1346$ (mean of four seeds) against $0.1364$ for the starting point, an improvement of $0.0018$, about two standard errors, with the smallest seed-to-seed spread of all candidates. Moving all the way except for $\kappa$ gives $0.1350$, with a larger spread. On every seed the same pattern recurs: moving towards the fit helps opens, responses to an open and responses to a 5-bet, and hurts responses to a 4-bet. We adopted the halfway point, the values now shipped.
 

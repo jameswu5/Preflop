@@ -97,7 +97,7 @@ with $\psi_i = \psi$ for an out-of-position caller and $1$ otherwise, and finall
 \begin{equation}\label{eq:realization}
   \real_i = \max\big(\mathrm{pos}_i \cdot H_i \cdot (1 + \iota\,\1_{\mathrm{raiser}}),\ 0.05\big).
 \end{equation}
-The floor keeps every factor positive, so the denominator of the share never vanishes.
+The floor keeps every factor positive, so the denominator of the share never vanishes; where it binds, $\real_i$ no longer depends on $\theta$, so its gradient there is zero (\cref{sec:fixed-fit}).
 
 \begin{table}[ht]
 \centering\small
@@ -128,8 +128,17 @@ $\chi$ & \texttt{ipCall} & scales position for in-position callers in re-raised 
 
 \begin{figure}[ht]
 \centering
-\IfFileExists{figures/gen/realization_grids.tex}{\input{figures/gen/realization_grids.tex}}{\fbox{\parbox{0.9\linewidth}{\centering realization heat-grids (generated)}}}
-\caption{The realization factor $\real$ for every hand class under the adopted parameters, in four roles. Each grid is the $13\times 13$ class grid: pairs on the diagonal, suited hands above it, offsuit below.}
+\input{data/heat_roles.tex}%
+\begin{subfigure}[t]{0.48\linewidth}\centering\input{figures/gen/heat_ip_caller_srp.tex}
+  \caption{In-position caller, single-raised pot (BTN calls a CO open), $\spr = \heatspr{ip_caller_srp}$.}\end{subfigure}\hfill
+\begin{subfigure}[t]{0.48\linewidth}\centering\input{figures/gen/heat_oop_caller_srp.tex}
+  \caption{Out-of-position caller, single-raised pot (BB calls a BTN open), $\spr = \heatspr{oop_caller_srp}$.}\end{subfigure}\\[2mm]
+\begin{subfigure}[t]{0.48\linewidth}\centering\input{figures/gen/heat_oop_caller_3bp.tex}
+  \caption{Out-of-position caller, 3-bet pot (CO calls a BTN 3-bet), $\spr = \heatspr{oop_caller_3bp}$.}\end{subfigure}\hfill
+\begin{subfigure}[t]{0.48\linewidth}\centering\input{figures/gen/heat_ip_raiser_3bp.tex}
+  \caption{In-position raiser, 3-bet pot (the BTN 3-bettor in the same pot), $\spr = \heatspr{ip_raiser_3bp}$.}\end{subfigure}\\[2mm]
+\input{figures/gen/heat_colorbar.tex}
+\caption{The realization factor $\real$ for every hand class under the adopted parameters, in four roles, on one shared colour scale. Each grid is the $13\times 13$ class grid: pairs on the diagonal, suited hands above it, offsuit below.}
 \label{fig:real-grids}
 \end{figure}
 

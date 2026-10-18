@@ -37,7 +37,7 @@ they act last after the flop, whether they made the last raise, whether the pot 
 ratio $\spr$. Far fewer roles than records occur, so $\real$ and its derivatives in $\theta$ are
 evaluated on a role-by-class table, which the records index into. The loss is $\mathcal L(\theta)$ of
 \cref{sec:fitting-maths}, with $\omega_{s,k}$ the class weights of \cref{def:tv-distance} balanced by category,
-plus $\lambda \sum_m \big((\theta_m - \theta_{0,m})/\delta_m\big)^2$, where $\theta_0$ is the sampling point and $\delta_m$
+plus $\nu \sum_m \big((\theta_m - \theta_{0,m})/\delta_m\big)^2$, where $\theta_0$ is the sampling point and $\delta_m$
 the coordinate-search step of parameter $m$. Its gradient is computed exactly in reverse order. The softmax gives
 $\partial\mathcal L/\partial \mathrm{EV}$, \eqref{eq:fit-ev} gives $\partial \mathrm{EV}/\partial\,\mathrm{pay}_\theta(r)
 = \ell_r/W_{s,k}$, and with $s_h$ the hero's share at $z_r$,

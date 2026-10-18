@@ -5,7 +5,7 @@ All amounts are in big blinds. Raise totals round to the nearest $0.1\bb$ (halve
 
 \begin{table}[ht]
 \centering\small
-\begin{tabular}{@{}lll@{}}
+\begin{tabularx}{\linewidth}{@{}llX@{}}
 \toprule
 Action & Rule & Examples \\
 \midrule
@@ -22,7 +22,7 @@ Rake & $5\%$ of the pot, capped at $4$ & only if a flop is dealt or an all-in is
 Limping & not allowed & \\
 Cold calls & of an open only & a cold caller may also call a squeeze \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \caption{Bet sizes and rules of the game.}
 \label{tab:betsizes}
 \end{table}
@@ -58,4 +58,51 @@ $\delta_{\mathrm{rr}}$  & \texttt{domPot}       & 0      & 0.0665 & 0.0332 \\
 
 \chapter{Further range charts}\label{app:charts}
 
-\IfFileExists{figures/gen/appendix_grids.tex}{\input{figures/gen/appendix_grids.tex}}{\textit{(Generated grids to be inserted.)}}
+This appendix shows, for fourteen spots, the Scratch solve next to the GTO and PTO charts of \textcite{pokertrainer}, with the distance $D$ of the Scratch solve to each chart (\cref{sec:reference}). Conventions are as in \cref{fig:grids-a}: raise in red, call in green, fold in grey, and white for hands the player never brings to the spot. In the chart grids the reach is the chart's own.
+
+\input{data/spot_distance.tex}
+% Scratch / GTO / PTO for one spot: \gridtriple{spot}{title}
+\newcommand{\gridtriple}[2]{%
+  \def\gridunit{0.37cm}%
+  \begin{subfigure}[t]{0.325\linewidth}\centering\input{figures/gen/grid_scratch_#1.tex}\caption*{\scriptsize Scratch: #2}\end{subfigure}\hfill
+  \begin{subfigure}[t]{0.325\linewidth}\centering\input{figures/gen/grid_gto_#1.tex}\caption*{\scriptsize GTO \hfill $D = \spotdist{gto}{#1}$}\end{subfigure}\hfill
+  \begin{subfigure}[t]{0.325\linewidth}\centering\input{figures/gen/grid_pto_#1.tex}\caption*{\scriptsize PTO \hfill $D = \spotdist{pto}{#1}$}\end{subfigure}}
+
+\begin{figure}[p]
+\centering
+\gridtriple{open_lj}{UTG open}\\[2mm]
+\gridtriple{open_hj}{HJ open}\\[2mm]
+\gridtriple{open_co}{CO open}\\[2mm]
+\gridtriple{open_btn}{BTN open}
+\caption{Scratch, GTO and PTO: UTG open, HJ open, CO open, BTN open. Chart data from \textcite{pokertrainer}.}
+\label{fig:app-grids-1}
+\end{figure}
+
+\begin{figure}[p]
+\centering
+\gridtriple{open_sb}{SB open}\\[2mm]
+\gridtriple{vs_open_co_vs_lj}{CO vs UTG open}\\[2mm]
+\gridtriple{vs_open_sb_vs_btn}{SB vs BTN open}\\[2mm]
+\gridtriple{vs_open_bb_vs_sb}{BB vs SB open}
+\caption{Scratch, GTO and PTO: SB open, CO vs UTG open, SB vs BTN open, BB vs SB open. Chart data from \textcite{pokertrainer}.}
+\label{fig:app-grids-2}
+\end{figure}
+
+\begin{figure}[p]
+\centering
+\gridtriple{vs_3bet_lj_vs_btn}{UTG vs BTN 3-bet}\\[2mm]
+\gridtriple{vs_3bet_sb_vs_bb}{SB vs BB 3-bet}\\[2mm]
+\gridtriple{vs_4bet_btn_vs_co}{BTN vs CO 4-bet}\\[2mm]
+\gridtriple{vs_4bet_sb_vs_btn}{SB vs BTN 4-bet}
+\caption{Scratch, GTO and PTO: UTG vs BTN 3-bet, SB vs BB 3-bet, BTN vs CO 4-bet, SB vs BTN 4-bet. Chart data from \textcite{pokertrainer}.}
+\label{fig:app-grids-3}
+\end{figure}
+
+\begin{figure}[p]
+\centering
+\gridtriple{vs_5bet_btn_vs_bb}{BTN vs BB 5-bet}\\[2mm]
+\gridtriple{vs_5bet_co_vs_sb}{CO vs SB 5-bet}
+\caption{Scratch, GTO and PTO: BTN vs BB 5-bet, CO vs SB 5-bet. Chart data from \textcite{pokertrainer}.}
+\label{fig:app-grids-4}
+\end{figure}
+

@@ -1,4 +1,4 @@
-% Master file. Build: latexmk -pdf main.tex (from writeup/).
+% Master file. Build: latexmk main.tex (from writeup/; .latexmkrc selects LuaLaTeX).
 \documentclass[11pt,a4paper,oneside]{report}
 
 % ---------- packages ----------
@@ -75,12 +75,14 @@
 \newcommand{\pot}{\mathrm{pot}}
 \newcommand{\rake}{\operatorname{rake}}  % rake taken at a terminal
 \newcommand{\real}{\rho}                 % realization factor rho_i
-\newcommand{\spr}{S}                     % stack-to-pot ratio at the flop
+\newcommand{\spr}{\mathrm{SPR}}          % stack-to-pot ratio at the flop
 \newcommand{\bucket}{b}                  % hand class map b(x), classes k = 0..168
 \newcommand{\SB}{\mathrm{SB}}
 \newcommand{\BB}{\mathrm{BB}}
 \newcommand{\bb}{\,\mathrm{bb}}          % big blinds, as a unit: 2.5\bb
 \newcommand{\pf}{\textsc{Preflop}}       % the software, in running text
+% \inputrows{file.tex}: \input that works inside a tabular, before \midrule/\bottomrule (full filename)
+\makeatletter\newcommand{\inputrows}[1]{\@@input #1 }\makeatother
 
 % action colours (range grids, tree diagrams)
 \definecolor{raisecol}{HTML}{C0392B}

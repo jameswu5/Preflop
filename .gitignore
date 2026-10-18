@@ -83,3 +83,6 @@ writeup/data/tmp/
 
 # macOS
 .DS_Store
+
+# LaTeX writeup sources (local only); the built report is six-max-preflop-equilibria.pdf
+writeup/

@@ -1,5 +1,0 @@
-model seeds open open_sd vs_open vs_open_sd vs_3bet vs_3bet_sd vs_4bet vs_4bet_sd vs_5bet vs_5bet_sd overall overall_sd
-Position_only_neutral 1 0.1194 0.0000 0.1655 0.0000 0.3342 0.0000 0.5692 0.0000 0.4064 0.0000 0.3189 0.0000
-Previous_defaults 4 0.0886 0.0018 0.0859 0.0007 0.1703 0.0014 0.2278 0.0065 0.1093 0.0041 0.1363 0.0016
-Adopted_defaults 4 0.0820 0.0011 0.0831 0.0009 0.1695 0.0016 0.2414 0.0029 0.0968 0.0019 0.1346 0.0004
-Adopted_shipped_solve 1 0.0846 0.0000 0.0832 0.0000 0.1663 0.0000 0.2436 0.0000 0.1005 0.0000 0.1357 0.0000

@@ -1,5 +1,0 @@
-role spr r_min r_max
-ip_caller_srp 15.000 0.4073 1.3499
-oop_caller_srp 17.727 0.2876 0.9605
-oop_caller_3bp 5.606 0.1937 0.9409
-ip_raiser_3bp 5.606 0.7855 1.6140

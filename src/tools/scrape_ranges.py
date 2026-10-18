@@ -7,22 +7,35 @@ only: the output stays in the git-ignored ref/.
     src/tools/scrape_ranges.py [--out ref] [--modes gto,pto]   # -> ref/gto_*.txt, ref/pto/pto_*.txt
 
 Each cell's raise/call frequencies are read from its --raise-percentage / --call-percentage style
-variables; the card's sizing line (e.g. "3-bet 7.5bb") goes into the header comment. Spots are the
-same (category, hero, villain) set as ranges_to_ref.py, and each page's title is checked against the
-spot so a URL the app ignores fails loudly.
+variables; the card's sizing line (e.g. "3-bet 7.5bb") goes into the header comment. Each page's
+title is checked against the spot so a URL the app ignores fails loudly.
 """
 import argparse
 import pathlib
 
-from ranges_to_ref import POS, history
-
 BASE = "https://app.pokertrainer.se/range-viewer?format=cash&players=6&stack=100"
 SCENARIO = {"open": "open", "vs_open": "vs-raise", "vs_3bet": "vs-3bet", "vs_4bet": "vs-4bet", "vs_5bet": "vs-5bet"}
+POS = {"LJ": 0, "HJ": 1, "CO": 2, "BTN": 3, "SB": 4, "BB": 5}  # LJ = UTG
 CELLS = ".range-chart-card ion-grid.rangeGrid ion-button"
 READ = """els => els.map(e => [e.innerText.trim(), ...['--raise-percentage', '--call-percentage'].map(v => {
     const x = parseFloat(getComputedStyle(e).getPropertyValue(v)) || 0;
     return Math.min(x, 1);  // the site writes the odd 100% cell as Infinity
 })])"""
+
+
+def history(cat, h, v):
+    """F/C/R letters from UTG to hero's decision; everyone not named folds."""
+    if cat == "open":
+        return "F" * h
+    if cat == "vs_open":  # V opened, H faces it
+        return "F" * v + "R" + "F" * (h - v - 1)
+    if cat == "vs_3bet":  # H opened, V 3-bet
+        return "F" * h + "R" + "F" * (v - h - 1) + "R" + "F" * (5 - v)
+    if cat == "vs_4bet":  # V opened, H 3-bet, V 4-bet
+        return "F" * v + "R" + "F" * (h - v - 1) + "R" + "F" * (5 - h) + "R"
+    if cat == "vs_5bet":  # H opened, V 3-bet, H 4-bet, V shoved
+        return "F" * h + "R" + "F" * (v - h - 1) + "R" + "F" * (5 - v) + "RR"
+    raise ValueError(cat)
 
 
 def spots():

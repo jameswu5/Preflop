@@ -35,7 +35,7 @@ struct SpotInfo {
 
 // One (spot, class): sums over deals and the flop-terminal records, columnar as written.
 struct Out {
-    double W = 0, W2 = 0, c[3] = {}, csq[3] = {};
+    double W = 0, W2 = 0, c[3] = {}, csq[3] = {}, cw2x[3] = {};
     double sw2x[3] = {}, sw2x2[3] = {};  // sum w^2 x, sum w^2 x^2 over all playouts: --check's SE
     long deals = 0;
     std::vector<uint32_t> term;
@@ -129,7 +129,7 @@ struct Sampler {
                         continue;
                     }
                 }
-                o.c[a] += w * x, o.csq[a] += w * w * x * x;
+                o.c[a] += w * x, o.csq[a] += w * w * x * x, o.cw2x[a] += w * w * x;
                 o.sw2x[a] += w * w * x, o.sw2x2[a] += w * w * x * x;
             }
         }
@@ -268,7 +268,8 @@ int main(int argc, char** argv) {
         rec[c] << npyHeader(recDescr[c], 0, recWidth[c]);
     }
     size_t S = spots.size(), nrec = 0;
-    std::vector<double> W(S * NBUCKETS), W2(S * NBUCKETS), cst(S * NBUCKETS * 3), cstsq(S * NBUCKETS * 3);
+    std::vector<double> W(S * NBUCKETS), W2(S * NBUCKETS), cst(S * NBUCKETS * 3), cstsq(S * NBUCKETS * 3),
+        cstw2x(S * NBUCKETS * 3);
     long deals = 0;
     // Finished jobs are written in job order, so the files don't depend on thread timing.
     std::vector<std::unique_ptr<Out>> done(jobs.size());
@@ -286,7 +287,7 @@ int main(int argc, char** argv) {
                 const Out& d = *done[next];
                 uint32_t sk = uint32_t(jobs[next].first * NBUCKETS + jobs[next].second);
                 W[sk] = d.W, W2[sk] = d.W2, deals += d.deals;
-                for (int a = 0; a < 3; ++a) cst[sk * 3 + a] = d.c[a], cstsq[sk * 3 + a] = d.csq[a];
+                for (int a = 0; a < 3; ++a) cst[sk * 3 + a] = d.c[a], cstsq[sk * 3 + a] = d.csq[a], cstw2x[sk * 3 + a] = d.cw2x[a];
                 std::vector<uint32_t> skv(d.pay.size(), sk);
                 auto put = [&](int c, const auto& v) { rec[c].write(reinterpret_cast<const char*>(v.data()), v.size() * sizeof v[0]); };
                 put(0, skv), put(1, d.act), put(2, d.w), put(3, d.term), put(4, d.cls), put(5, d.eq), put(6, d.pay);
@@ -334,6 +335,7 @@ int main(int argc, char** argv) {
     }
     writeNpy(od / "sk_W.npy", "<f8", W), writeNpy(od / "sk_W2.npy", "<f8", W2);
     writeNpy(od / "sk_const.npy", "<f8", cst, 3), writeNpy(od / "sk_constsq.npy", "<f8", cstsq, 3);
+    writeNpy(od / "sk_constw2x.npy", "<f8", cstw2x, 3);
     writeNpy(od / "sk_chart.npy", "<f4", chart, 3), writeNpy(od / "sk_weight.npy", "<f4", weight);
     writeNpy(od / "sk_legal.npy", "|u1", legal);
 

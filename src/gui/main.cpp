@@ -797,6 +797,13 @@ int main(int argc, char** argv) {
     InitWindow(W, H, "Preflop");
     SetExitKey(KEY_NULL);  // Esc closes panels instead
     SetTargetFPS(60);
+    // Layout is in W x H units; the window is 80% of the screen height at the same aspect ratio.
+    const float scale = 0.8f * GetMonitorHeight(GetCurrentMonitor()) / H;
+    SetWindowSize(int(W * scale), int(H * scale));
+    SetWindowPosition((GetMonitorWidth(GetCurrentMonitor()) - int(W * scale)) / 2,
+                      (GetMonitorHeight(GetCurrentMonitor()) - int(H * scale)) / 2);
+    SetMouseScale(1 / scale, 1 / scale);  // GetMousePosition() in layout units
+    const Camera2D zoom{{0, 0}, {0, 0}, 0, scale};
 
     auto loadFont = [](const char* path) {
         if (!FileExists(path)) return GetFontDefault();
@@ -920,6 +927,7 @@ int main(int argc, char** argv) {
     while (!WindowShouldClose()) {
         if (inspector || painter) {  // full-screen tools; the table is paused underneath
             BeginDrawing();
+            BeginMode2D(zoom);
             if (inspector) {
                 if (!inspector->frame()) inspector.reset();
             } else if (!painter->frame()) {
@@ -931,6 +939,7 @@ int main(int argc, char** argv) {
                 inspector.emplace(strat);
                 inspector->fromSpot(painter->hist);
             }
+            EndMode2D();
             EndDrawing();
             continue;
         }
@@ -1014,6 +1023,7 @@ int main(int argc, char** argv) {
 
         // --- draw ---
         BeginDrawing();
+        BeginMode2D(zoom);
         DrawRectangleGradientV(0, 0, W, H, {28, 31, 37, 255}, {12, 13, 16, 255});
 
         // table: dark rim, green felt, faint inner line
@@ -1141,6 +1151,7 @@ int main(int argc, char** argv) {
         if (menu == 1 && pickerPanel(filter)) menu = 0;
         if (menu == 2 && statsPanel(stats[mode], ("Stats - " + modes[mode].name).c_str())) menu = 0;
 
+        EndMode2D();
         EndDrawing();
     }
     CloseWindow();

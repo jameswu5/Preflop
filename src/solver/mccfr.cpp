@@ -1,6 +1,7 @@
 #include "solver/mccfr.h"
 
 #include <algorithm>
+#include <cassert>
 #include <atomic>
 #include <cstdio>
 #include <cstring>
@@ -79,8 +80,9 @@ double Solver::traverse(Deal& d, int node, int traverser, std::mt19937& rng, boo
     if (p < sc_.rootFolds) return step(int(Act::Fold));
 
     int b = d.bucket[p];
-    auto sigma = regretMatch(node, b, shared);
     size_t i = size_t(node) * NBUCKETS + b;
+    bool fixed = !locked_.empty() && locked_[i];
+    auto sigma = fixed ? fixed_[i] : regretMatch(node, b, shared);
     if (p == traverser) {
         double v[3] = {}, ev = 0;
         for (int a = 0; a < 3; ++a)
@@ -89,7 +91,8 @@ double Solver::traverse(Deal& d, int node, int traverser, std::mt19937& rng, boo
             if (tree_.legal[node] >> a & 1) add(regret_[i][a], float(v[a] - ev) * d.weight, shared);
         return ev;
     }
-    for (int a = 0; a < 3; ++a) add(stratSum_[i][a], sigma[a] * d.weight, shared);
+    if (!fixed)
+        for (int a = 0; a < 3; ++a) add(stratSum_[i][a], sigma[a] * d.weight, shared);
     float u = std::uniform_real_distribution<float>(0, 1)(rng), acc = 0;
     int pick = 0;
     for (int a = 0; a < 3; ++a)
@@ -130,6 +133,23 @@ void Solver::run(long iterations, int threads) {
     t_ += iterations;
 }
 
+void Solver::lock(const Strategy& s, const std::vector<uint8_t>& mask) {
+    assert(s.tree().size() == tree_.size() && mask.size() == regret_.size());
+    locked_ = mask;
+    fixed_.resize(regret_.size());
+    for (int n = 0; n < tree_.size(); ++n)
+        for (int b = 0; b < NBUCKETS; ++b) fixed_[size_t(n) * NBUCKETS + b] = s.probs(n, b);
+}
+
+std::array<double, 3> Solver::averageRegret(int node, int bucket) const {
+    long n = sc_.discountEvery, k = n > 0 ? t_ / n : 0;  // k full blocks
+    double w = n > 0 ? n * k * (k + 1) / 2.0 + double(k + 1) * (t_ - k * n) : t_;  // sum of weight(t), t <= t_
+    auto& r = regret_[size_t(node) * NBUCKETS + bucket];
+    if (w == 0) return {};
+    w /= NPOS - sc_.rootFolds;  // a seat only accrues regret on the iterations it traverses
+    return {r[0] / w, r[1] / w, r[2] / w};
+}
+
 Strategy Solver::average() const {
     Strategy s(cfg_, sc_.realization);
     for (int n = 0; n < tree_.size(); ++n)
@@ -137,6 +157,7 @@ Strategy Solver::average() const {
             const auto& ss = stratSum_[size_t(n) * NBUCKETS + b];
             float sum = ss[0] + ss[1] + ss[2];
             if (tree_.actor[n] < sc_.rootFolds) s.probs(n, b) = {1, 0, 0};
+            else if (!locked_.empty() && locked_[size_t(n) * NBUCKETS + b]) s.probs(n, b) = fixed_[size_t(n) * NBUCKETS + b];
             else if (sum > 0) s.probs(n, b) = {ss[0] / sum, ss[1] / sum, ss[2] / sum};
         }
     return s;

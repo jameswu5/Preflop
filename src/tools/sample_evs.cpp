@@ -20,6 +20,7 @@
 #include <thread>
 
 #include "solver/range.h"
+#include "tools/npy.h"
 #include "trainer/trainer.h"
 
 using namespace pf;
@@ -147,22 +148,6 @@ static std::array<double, 3> evOf(const Out& o, std::array<double, 3>* se = null
         if (se) (*se)[a] = std::sqrt(std::max(o.sw2x2[a] - 2 * ev[a] * o.sw2x[a] + ev[a] * ev[a] * o.W2, 0.0)) / o.W;
     }
     return ev;
-}
-
-// numpy format 1.0 with a fixed 128-byte header, so a streamed file's header can be rewritten once N is known.
-static std::string npyHeader(const char* descr, size_t n, int width) {
-    std::string d = std::string("{'descr': '") + descr + "', 'fortran_order': False, 'shape': (" + std::to_string(n) +
-                    (width > 1 ? ", " + std::to_string(width) + ")" : ",)") + ", }";
-    d.resize(128 - 10 - 1, ' ');
-    d += '\n';
-    return std::string("\x93NUMPY\x01\x00", 8) + char(d.size() & 0xff) + char(d.size() >> 8) + d;
-}
-
-template <class T>
-static void writeNpy(const fs::path& path, const char* descr, const std::vector<T>& v, int width = 1) {
-    std::ofstream f(path, std::ios::binary);
-    f << npyHeader(descr, v.size() / width, width);
-    f.write(reinterpret_cast<const char*>(v.data()), v.size() * sizeof(T));
 }
 
 int main(int argc, char** argv) {

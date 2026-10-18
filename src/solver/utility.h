@@ -51,11 +51,24 @@ double rake(const Hand& h);
 // All-in called: done() with every live player at currentBet() == stack.
 bool allIn(const Hand& h);
 
+// Everything payoffs() needs from a done() Hand except the cards; fixed by the betting history, so
+// the solver builds one per terminal up front.
+struct Terminal {
+    std::array<double, NPOS> committed{};
+    double net = 0, spr = 0;  // pot minus rake; last live player's stack / pot
+    int live = 0, last = -1, lastRaiser = -1;  // live seat bitmask, live seat acting last postflop
+    bool allIn = false;
+    Terminal() = default;
+    explicit Terminal(const Hand& h);
+};
+
 // Payoffs at a done() Hand given each seat's equity (ignored if all but one folded):
 // share_i * (pot - rake) - contributed_i. All-in: share = eq, the showdown pot share.
 // Flop: share_i = R_i*eq_i / sum_j R_j*eq_j.
 std::array<double, NPOS> payoffs(const Hand& h, const std::array<double, NPOS>& eq,
                                  const RealizationConfig& rc = {});
+std::array<double, NPOS> payoffs(const Terminal& t, const Holes& cards, const std::array<double, NPOS>& eq,
+                                 const RealizationConfig& rc);
 
 // payoffs() with eq from Equity::compute: 1 board for an all-in, `flopBoards` otherwise.
 std::array<double, NPOS> utility(const Hand& h, const Equity& e, std::mt19937& rng,

@@ -131,6 +131,16 @@ int main() {
         assert(!c.loadCheckpoint("solver_test.ck") && c.iterations() == 30000);
         std::remove("solver_test.ck");
     }
+    if (std::ifstream(DATA_DIR "/6max.ck").good()) {  // older checkpoint versions still load
+        Solver a(Config{}, SolverConfig{}, eq, 1), b(Config{}, SolverConfig{}, eq, 1);
+        assert(a.loadCheckpoint(DATA_DIR "/6max.ck") && a.saveCheckpoint("solver_test.ck"));
+        assert(b.loadCheckpoint("solver_test.ck") && b.iterations() == a.iterations());
+        a.run(2000), b.run(2000);
+        Strategy sa = a.average(), sb = b.average();
+        for (int n = 0; n < sa.tree().size(); ++n)
+            for (int k = 0; k < NBUCKETS; ++k) assert(sa.probs(n, k) == sb.probs(n, k));
+        std::remove("solver_test.ck");
+    }
     {  // multithreaded: not bit-reproducible, but converges just as well
         Solver s(pf10, sc, eq, 2);
         s.run(1500000, 4);

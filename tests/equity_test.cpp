@@ -3,7 +3,10 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <numeric>
 #include <set>
+
+#include <phevaluator/phevaluator.h>
 
 #include "solver/cards.h"
 #include "solver/equity.h"
@@ -50,6 +53,16 @@ static std::array<double, NPOS> eq(const Equity& e, const Holes& h, int nlive, i
 static bool within(double x, double lo, double hi) { return lo <= x && x <= hi; }
 
 int main() {
+    {  // rank7's table path agrees with PHE on random hands
+        std::mt19937 rng(5);
+        for (int t = 0; t < 200000; ++t) {
+            int id[52];
+            std::iota(id, id + 52, 0);
+            Card c[7];
+            for (int i = 0; i < 7; ++i) std::swap(id[i], id[i + rng() % (52 - i)]), c[i] = cardFromIndex(id[i]);
+            assert(rank7(c) == 7463 - evaluate_7cards(id[0], id[1], id[2], id[3], id[4], id[5], id[6]));
+        }
+    }
     {  // combos and buckets
         std::set<int> combos;
         int perBucket[NBUCKETS] = {};

@@ -53,31 +53,37 @@ bool allIn(const Hand& h) {
     return false;
 }
 
-std::array<double, NPOS> payoffs(const Hand& h, const std::array<double, NPOS>& eq,
-                                 const RealizationConfig& rc) {
+Terminal::Terminal(const Hand& h) : lastRaiser(h.lastRaiser()), allIn(pf::allIn(h)) {
     assert(h.done());
-    auto live = liveSeats(h);
-    int nLive = 0, last = -1;  // last = live seat acting last postflop (SB first, BTN last)
-    for (int p : {SB, BB, UTG, HJ, CO, BTN})
-        if (live[p]) ++nLive, last = p;
+    for (int p : {SB, BB, UTG, HJ, CO, BTN})  // postflop order: SB first, BTN last
+        if (!h.folded(p)) live |= 1 << p, last = p;
+    for (int p = 0; p < NPOS; ++p) committed[p] = h.committed(p);
+    spr = h.stack(last) / h.pot();  // live stacks are equal at a flop
+    net = h.pot() - rake(h);
+}
 
+std::array<double, NPOS> payoffs(const Terminal& t, const Holes& cards, const std::array<double, NPOS>& eq,
+                                 const RealizationConfig& rc) {
     std::array<double, NPOS> share{};
-    if (nLive == 1) {
-        share[last] = 1;
+    if (__builtin_popcount(t.live) == 1) {
+        share[t.last] = 1;
     } else {
-        bool ai = allIn(h);
-        double spr = h.stack(last) / h.pot(), sum = 0;  // live stacks are equal at a flop
+        double sum = 0;
         for (int p = 0; p < NPOS; ++p)
-            if (live[p])
-                sum += share[p] = eq[p] * (ai ? 1 : realization(rc, p == last, p == h.lastRaiser(), spr,
-                                                                h.cards[p][0], h.cards[p][1]));
+            if (t.live >> p & 1)
+                sum += share[p] = eq[p] * (t.allIn ? 1 : realization(rc, p == t.last, p == t.lastRaiser, t.spr,
+                                                                     cards[p][0], cards[p][1]));
         assert(sum > 0);
         for (double& s : share) s /= sum;
     }
     std::array<double, NPOS> out;
-    double net = h.pot() - rake(h);
-    for (int p = 0; p < NPOS; ++p) out[p] = share[p] * net - h.committed(p);
+    for (int p = 0; p < NPOS; ++p) out[p] = share[p] * t.net - t.committed[p];
     return out;
+}
+
+std::array<double, NPOS> payoffs(const Hand& h, const std::array<double, NPOS>& eq,
+                                 const RealizationConfig& rc) {
+    return payoffs(Terminal(h), h.cards, eq, rc);
 }
 
 std::array<double, NPOS> utility(const Hand& h, const Equity& e, std::mt19937& rng,

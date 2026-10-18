@@ -144,8 +144,9 @@ Strategy Solver::average() const {
 
 // File: "PFCK" u32 version, Config, SolverConfig (raw; they hold only doubles/ints, no padding),
 // i64 iteration, u32 rng-state length + mt19937 text state, then regret and strategy sums.
-// 6: RealizationConfig.oopCall/callerShrink; 7: tables kept at scale(t) (version 6 holds them at 1).
-static constexpr uint32_t CK_VERSION = 7;
+// 6: RealizationConfig.oopCall/callerShrink; 7: tables kept at scale(t) (version 6 holds them at 1);
+// 8: RealizationConfig.ipCall/domPot (older versions load with their defaults).
+static constexpr uint32_t CK_VERSION = 8;
 static_assert(sizeof(Config) % sizeof(double) == 0 && sizeof(RealizationConfig) % sizeof(double) == 0 &&
                   sizeof(SolverConfig) == 2 * sizeof(int) + sizeof(long) + sizeof(RealizationConfig),
               "configs are compared bytewise; keep them free of padding");
@@ -185,7 +186,9 @@ bool Solver::loadCheckpoint(const std::string& path) {
     SolverConfig sc;
     int64_t t;
     if (!in.read(magic, 4) || std::memcmp(magic, "PFCK", 4) || !get(in, version) || version < 6 || version > CK_VERSION ||
-        !get(in, cfg) || !get(in, sc) || !get(in, t) || !get(in, rlen) || rlen > 1 << 16)
+        !get(in, cfg) ||
+        !in.read(reinterpret_cast<char*>(&sc), version < 8 ? offsetof(SolverConfig, realization) + REALIZATION_V1_SIZE : sizeof sc) ||
+        !get(in, t) || !get(in, rlen) || rlen > 1 << 16)
         return false;
     bool newR = std::memcmp(&sc.realization, &sc_.realization, sizeof sc.realization) != 0;
     sc.realization = sc_.realization;  // R may differ: warm start

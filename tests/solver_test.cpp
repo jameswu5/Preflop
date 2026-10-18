@@ -2,6 +2,7 @@
 #include <cassert>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <fstream>
 
 #include "solver/cards.h"
@@ -131,8 +132,21 @@ int main() {
         assert(!c.loadCheckpoint("solver_test.ck") && c.iterations() == 30000);
         std::remove("solver_test.ck");
     }
-    if (std::ifstream(DATA_DIR "/6max.ck").good()) {  // older checkpoint versions still load
+    if (std::ifstream(DATA_DIR "/strategy_6max.bin").good()) {  // older strategy files load, new R fields default
+        Strategy s;
+        assert(s.load(DATA_DIR "/strategy_6max.bin") && s.realization().ipCall == 1 && s.realization().domPot == 0);
+        assert(s.save("solver_test.strat"));
+        Strategy t;
+        assert(t.load("solver_test.strat") && t.probs(5, 7) == s.probs(5, 7) &&
+               std::memcmp(&t.realization(), &s.realization(), sizeof(RealizationConfig)) == 0);
+        std::remove("solver_test.strat");
+    }
+    if (std::ifstream(DATA_DIR "/6max.ck").good()) {  // older checkpoint versions still load, new R fields default
         Solver a(Config{}, SolverConfig{}, eq, 1), b(Config{}, SolverConfig{}, eq, 1);
+        SolverConfig other;
+        other.realization.ipCall = 0.9;
+        Solver c(Config{}, other, eq, 1);
+        assert(c.loadCheckpoint(DATA_DIR "/6max.ck") && c.iterations() == 0);  // R differs only in ipCall: warm start
         assert(a.loadCheckpoint(DATA_DIR "/6max.ck") && a.saveCheckpoint("solver_test.ck"));
         assert(b.loadCheckpoint("solver_test.ck") && b.iterations() == a.iterations());
         a.run(2000), b.run(2000);

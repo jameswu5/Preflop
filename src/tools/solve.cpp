@@ -9,7 +9,7 @@
 //   --boards     boards per multiway flop equity estimate (SolverConfig::flopBoards, default 100)
 //   --show       print the range at the node reached by these actions (F/C/R), after the last chunk;
 //                widths are weighted by how often each class reaches the node, "." = never
-//   --r key=val  realization factor (ip oop flush conn set dom low spr init pairLow oopCall callerShrink, utility.h), repeatable
+//   --r key=val  realization factor (ip oop flush conn set dom low spr init pairLow oopCall callerShrink ipCall domPot, utility.h), repeatable
 //   --report     print the validation.md sanity metrics
 //   --reset-average  after resuming, restart the strategy average (regrets kept): warm start
 //   --memory B   with --reset-average: old regrets fade as B / (B + discount blocks since); default 0.
@@ -164,7 +164,7 @@ int main(int argc, char** argv) {
         {"ip", &rc.ip}, {"oop", &rc.oop}, {"flush", &rc.flush}, {"conn", &rc.conn},
         {"set", &rc.set}, {"dom", &rc.dom}, {"low", &rc.low},
         {"spr", &rc.spr}, {"init", &rc.init}, {"pairLow", &rc.pairLow},
-        {"oopCall", &rc.oopCall}, {"callerShrink", &rc.callerShrink}};
+        {"oopCall", &rc.oopCall}, {"callerShrink", &rc.callerShrink}, {"ipCall", &rc.ipCall}, {"domPot", &rc.domPot}};
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--report" || a == "--reset-average") {
@@ -192,7 +192,7 @@ int main(int argc, char** argv) {
             auto f = std::find_if(std::begin(rFields), std::end(rFields),
                                   [&](auto& x) { return kv.substr(0, eqPos) == x.first; });
             if (eqPos == std::string::npos || f == std::end(rFields))
-                return std::fprintf(stderr, "bad --r %s (keys: ip oop flush conn set dom low spr init pairLow oopCall callerShrink)\n", v), 2;
+                return std::fprintf(stderr, "bad --r %s (keys: ip oop flush conn set dom low spr init pairLow oopCall callerShrink ipCall domPot)\n", v), 2;
             *f->second = std::atof(v + eqPos + 1);
         }
         else return std::fprintf(stderr, "unknown option %s\n", a.c_str()), 2;

@@ -57,6 +57,7 @@ public:
     bool folded(int pos) const;
     const Config& config() const { return cfg_; }
     int lastRaiser() const { return lastRaiser_; }  // seat that made the last raise, -1 if none
+    int raises() const { return raises_; }          // 0 = blinds only, 1 = open, 2 = 3-bet, ...
 
 private:
     void advance();

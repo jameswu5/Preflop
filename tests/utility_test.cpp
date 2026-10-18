@@ -249,6 +249,39 @@ int main() {
             assert(near(total(utility(hd, e, rng, 20, both)), -rake(hd)));
         }
     }
+    {  // ipCall / domPot: only callers in re-raised pots change, and the defaults change nothing
+        auto c = [](int rank, int suit) { return Card{uint8_t(rank), uint8_t(suit)}; };
+        RealizationConfig def;
+        for (int x = 0; x < 13; ++x)
+            for (int y = 0; y <= x; ++y)
+                for (bool ip : {false, true})
+                    for (bool raiser : {false, true})
+                        assert(realization(def, ip, raiser, 4, c(x, 0), c(y, 1), true) ==
+                               realization(def, ip, raiser, 4, c(x, 0), c(y, 1), false));
+        RealizationConfig dp = rc;  // KJo, domination 1: dom 0, domPot 0.1
+        dp.domPot = 0.1;
+        assert(near(realization(dp, true, false, 4, c(11, 0), c(9, 1), true), 0.9));
+        assert(near(realization(dp, false, false, 4, c(11, 0), c(9, 1), true), 0.8 * 0.9));
+        assert(near(realization(dp, true, false, 4, c(11, 0), c(9, 1), false), 1));  // single-raised pot
+        assert(near(realization(dp, true, true, 4, c(11, 0), c(9, 1), true), 1));    // the raiser
+
+        RealizationConfig ic = rc;
+        ic.ipCall = 0.5;
+        Eq eq{0, 0, 0.5, 0, 0, 0.5};
+        Hand srp(rng, NR);  // CO opens, BB calls: CO is in position but the raiser, and the pot is single-raised
+        play(srp, {F, F, R, F, F, C});
+        assert(payoffs(srp, eq, ic) == payoffs(srp, eq, rc));
+        Hand tb(rng, NR);  // CO opens, BB 3-bets, CO calls: CO is the in-position caller of a 3-bet
+        play(tb, {F, F, R, F, F, R, C});
+        assert(tb.done() && tb.raises() == 2 && tb.lastRaiser() == BB);
+        auto u = payoffs(tb, eq, ic);
+        assert(near(u[CO], 0.5 / 1.3 * tb.pot() - tb.committed(CO)) && near(total(u), 0));
+        RealizationConfig both = rc;
+        both.ipCall = 0.5, both.domPot = 0.1;
+        Hand ai(rng, NR);  // all-in called: R is ignored
+        play(ai, {F, F, F, R, F, R, R, R, C});
+        assert(payoffs(ai, {0, 0, 0, 0.6, 0, 0.4}, both) == payoffs(ai, {0, 0, 0, 0.6, 0, 0.4}, rc));
+    }
     {  // rake: 5% capped at 4bb, only when a flop is dealt or an all-in is called
         Hand fo(rng);  // UTG opens, all fold: no flop, no drop
         play(fo, {R, F, F, F, F, F});

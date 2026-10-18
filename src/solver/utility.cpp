@@ -27,15 +27,16 @@ int domination(Card a, Card b) {
     return std::min(hi - 1 - lo, 4);
 }
 
-double realization(const RealizationConfig& rc, bool lastToAct, bool raiser, double spr, Card a, Card b) {
+double realization(const RealizationConfig& rc, bool lastToAct, bool raiser, double spr, Card a, Card b,
+                   bool reraised) {
     int hi = std::max(a.rank, b.rank);
     bool pair = a.rank == b.rank, suited = a.suit == b.suit;
     double g = rc.spr > 0 ? spr / (spr + rc.spr) : 1;
     bool oopCaller = !lastToAct && !raiser;
     double fade = oopCaller ? rc.callerShrink * g + 1 - rc.callerShrink : g;
-    double pos = lastToAct ? rc.ip : 1 - (1 - rc.oop) * fade;
+    double pos = lastToAct ? rc.ip * (!raiser && reraised ? rc.ipCall : 1) : 1 - (1 - rc.oop) * fade;
     double play = rc.flush * suited + rc.conn * straights(a, b) * g + rc.set * pair * g;
-    double h = 1 + play * (oopCaller ? rc.oopCall : 1) - rc.dom * domination(a, b) * !raiser -
+    double h = 1 + play * (oopCaller ? rc.oopCall : 1) - (rc.dom + rc.domPot * reraised) * domination(a, b) * !raiser -
                rc.low * (12 - hi) * (!pair && !suited) - rc.pairLow * (12 - hi) * pair;
     return std::max(pos * h * (raiser ? 1 + rc.init : 1), 0.05);
 }
@@ -53,7 +54,7 @@ bool allIn(const Hand& h) {
     return false;
 }
 
-Terminal::Terminal(const Hand& h) : lastRaiser(h.lastRaiser()), allIn(pf::allIn(h)) {
+Terminal::Terminal(const Hand& h) : lastRaiser(h.lastRaiser()), allIn(pf::allIn(h)), reraised(h.raises() >= 2) {
     assert(h.done());
     for (int p : {SB, BB, UTG, HJ, CO, BTN})  // postflop order: SB first, BTN last
         if (!h.folded(p)) live |= 1 << p, last = p;
@@ -72,7 +73,7 @@ std::array<double, NPOS> payoffs(const Terminal& t, const Holes& cards, const st
         for (int p = 0; p < NPOS; ++p)
             if (t.live >> p & 1)
                 sum += share[p] = eq[p] * (t.allIn ? 1 : realization(rc, p == t.last, p == t.lastRaiser, t.spr,
-                                                                     cards[p][0], cards[p][1]));
+                                                                     cards[p][0], cards[p][1], t.reraised));
         assert(sum > 0);
         for (double& s : share) s /= sum;
     }

@@ -32,11 +32,11 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 BUILD = os.path.join(ROOT, "build")
 # Start point = current defaults in utility.h; step = initial search step per parameter.
-START = {"oop": 0.7, "flush": 0.15, "conn": 0.05, "set": 0.1, "dom": 0.1, "low": 0.03, "spr": 3.0, "init": 0.25, "pairLow": 0.02, "oopCall": 1.0, "callerShrink": 0.0}
+START = {"oop": 0.7, "flush": 0.15, "conn": 0.05, "set": 0.1, "dom": 0.1, "low": 0.03, "spr": 3.0, "init": 0.25, "pairLow": 0.02, "oopCall": 1.0, "callerShrink": 0.0, "ipCall": 1.0, "domPot": 0.0}
 # Sanity bands on open % (validation.md: UTG mid-teens, BTN in the 40s); PENALTY per point outside.
 BANDS = {"UTG": (13.0, 18.0), "BTN": (40.0, 50.0)}
 PENALTY = 0.005
-STEP = {"oop": 0.05, "flush": 0.02, "conn": 0.01, "set": 0.03, "dom": 0.02, "low": 0.01, "spr": 1.0, "init": 0.05, "pairLow": 0.01, "oopCall": 0.1, "callerShrink": 0.1}
+STEP = {"oop": 0.05, "flush": 0.02, "conn": 0.01, "set": 0.03, "dom": 0.02, "low": 0.01, "spr": 1.0, "init": 0.05, "pairLow": 0.01, "oopCall": 0.1, "callerShrink": 0.1, "ipCall": 0.1, "domPot": 0.02}
 BOARDS = 25  # multiway equity boards per estimate; K=25 is within noise of K=100 (validation.md)
 
 
@@ -104,7 +104,7 @@ def main():
     ap.add_argument("--seeds", type=int, default=4,
                     help="seeds averaged per candidate (one 2.5M run is too noisy to rank reliably)")
     ap.add_argument("--confirm", type=float, default=1e8, help="fresh-solve iterations for the final check (0 = skip)")
-    ap.add_argument("--jobs", type=int, default=0, help="parallel solves (default: all candidates at once)")
+    ap.add_argument("--jobs", type=int, default=os.cpu_count(), help="parallel solves (default: one per core)")
     ap.add_argument("--holdout", default="")
     ap.add_argument("--memory", type=int, default=0,
                     help="warm-start memory in discount blocks (solve --memory): old regrets keep B/(B+K)")

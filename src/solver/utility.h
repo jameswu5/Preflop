@@ -2,6 +2,7 @@
 // Terminal payoffs in bb per seat, won minus contributed (docs/math.md "Terminal payoffs"). They sum
 // to -rake(h): zero when no flop is dealt or rake is off.
 #include <array>
+#include <cstddef>
 #include <random>
 
 #include "solver/equity.h"
@@ -14,9 +15,11 @@ namespace pf {
 // and the pot depth. Fold equity and blockers are exact in the solver already (real cards are dealt),
 // so there are deliberately no blocker terms. With g = SPR / (SPR + spr) (1 if spr = 0):
 //   P = lastToAct ? ip : 1 - (1 - oop) * g                    position matters less shallow
-//       (OOP callers: g is replaced by callerShrink * g + 1 - callerShrink)
+//       (OOP callers: g is replaced by callerShrink * g + 1 - callerShrink;
+//        IP callers in a re-raised pot (3-bet or more): P = ip * ipCall)
 //   H = 1 + (flush * suited + conn * straights * g + set * pair * g) * (oopCall for OOP callers, else 1)
-//         - dom * domination * (caller) - low * (12 - hi) * (offsuit non-pair) - pairLow * (12 - hi) * pair
+//         - (dom + domPot * reraised) * domination * (caller) - low * (12 - hi) * (offsuit non-pair)
+//         - pairLow * (12 - hi) * pair
 //   R = max(P * H * (1 + init * raiser), 0.05)
 // Starting values, to be fit by src/tools/tune.py. All zero but ip/oop (and spr = 0) = position-only.
 // Keep this struct all doubles: it is compared bytewise and written raw into strategy files.
@@ -33,7 +36,13 @@ struct RealizationConfig {
     // Out-of-position callers (not last to act, not the last raiser); 1 = off, the same as everyone else.
     double oopCall = 1;        // scales their playability bonuses (flush, conn, set): no position, no initiative
     double callerShrink = 0;   // their position penalty fades with depth as 1 - (1 - oop) * (callerShrink * g + 1 - callerShrink)
+    // Callers in re-raised (3-bet+) pots. Appended after the fields above: files written before
+    // these existed load with the defaults (Strategy::load, Solver::loadCheckpoint).
+    double ipCall = 1;         // scales P for an in-position caller: calling a 3-bet in position is no free ride
+    double domPot = 0;         // extra domination penalty per point for any caller
 };
+// Size of RealizationConfig before ipCall/domPot, as stored by older files.
+constexpr size_t REALIZATION_V1_SIZE = offsetof(RealizationConfig, ipCall);
 
 // Number of 5-card straights (A-2-3-4-5 through T-J-Q-K-A) containing both ranks; 0 for pairs.
 // 98 = 4, KQ = 2, AK = 1, A5 = 1, T6 = 1, K4 = 0.
@@ -42,7 +51,9 @@ int straights(Card a, Card b);
 int domination(Card a, Card b);
 
 // R for one player's hand at a flop with stack-to-pot ratio `spr`. `raiser`: made the last raise.
-double realization(const RealizationConfig& rc, bool lastToAct, bool raiser, double spr, Card a, Card b);
+// `reraised`: the pot was 3-bet or more (Hand::raises() >= 2).
+double realization(const RealizationConfig& rc, bool lastToAct, bool raiser, double spr, Card a, Card b,
+                   bool reraised = false);
 
 // Rake taken at a done() Hand: min(rake * pot, rakeCap) if 2+ players are left (a flop is dealt or an
 // all-in is called), else 0 (no flop, no drop).
@@ -57,7 +68,7 @@ struct Terminal {
     std::array<double, NPOS> committed{};
     double net = 0, spr = 0;  // pot minus rake; last live player's stack / pot
     int live = 0, last = -1, lastRaiser = -1;  // live seat bitmask, live seat acting last postflop
-    bool allIn = false;
+    bool allIn = false, reraised = false;
     Terminal() = default;
     explicit Terminal(const Hand& h);
 };

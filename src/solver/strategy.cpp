@@ -75,7 +75,8 @@ std::array<float, 3>& Strategy::probs(int node, int bucket) { return p_[size_t(n
 // File: "PFST" u32 version, Config (raw), RealizationConfig (raw), i32 nodes,
 // then probs float[nodes][169][3].
 // The tree itself is rebuilt from the Config and checked against the node count.
-static constexpr uint32_t VERSION = 7;  // 7: RealizationConfig.oopCall/callerShrink
+// 7: RealizationConfig.oopCall/callerShrink; 8: ipCall/domPot (7 still loads, with their defaults).
+static constexpr uint32_t VERSION = 8;
 
 bool Strategy::save(const std::string& path) const {
     std::string tmp = path + ".tmp";
@@ -101,8 +102,8 @@ bool Strategy::load(const std::string& path) {
     RealizationConfig rc;
     int32_t n;
     if (!in.read(magic, 4) || std::memcmp(magic, "PFST", 4) || !in.read(reinterpret_cast<char*>(&version), sizeof version) ||
-        version != VERSION || !in.read(reinterpret_cast<char*>(&cfg), sizeof cfg) ||
-        !in.read(reinterpret_cast<char*>(&rc), sizeof rc) ||
+        version < 7 || version > VERSION || !in.read(reinterpret_cast<char*>(&cfg), sizeof cfg) ||
+        !in.read(reinterpret_cast<char*>(&rc), version < 8 ? REALIZATION_V1_SIZE : sizeof rc) ||
         !in.read(reinterpret_cast<char*>(&n), sizeof n))
         return false;
     Tree tree(cfg);

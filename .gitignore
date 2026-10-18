@@ -73,3 +73,4 @@ data/*.ck
 
 # Reference charts (validation.md: personal comparison only, never ship)
 ref/
+__pycache__/

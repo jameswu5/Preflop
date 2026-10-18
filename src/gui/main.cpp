@@ -198,12 +198,12 @@ void feedback(const Decision& d, float x, float y) {
     DrawTextEx(bold, b, {x, y + 6}, 20, 0, std::isnan(f.evLoss) ? GREY : f.correct ? Color{80, 200, 120, 255} : Color{230, 80, 70, 255});
 }
 
-// A strategy the trainer can play (T cycles them): the solve, or a chart set written over a base strategy.
+// A strategy the trainer can play (T cycles them): a solve, or a chart set written over one.
 struct Mode {
-    std::string name, dir, bin;   // chart dir and chart-locked solve file, "" for the solver
+    std::string name, dir;        // chart dir, "" for none
     pf::Strategy st;
     std::vector<uint8_t> locked;  // [node * NBUCKETS + bucket] = 1 where st's mix comes from a chart; empty = no charts
-    std::string fallback;         // "no chart, ..." label for uncharted spots
+    std::string base;             // the solve st plays where there is no chart: "Scratch" or "Anchored"
     bool charted(int node, int b) const { return !locked.empty() && locked[size_t(node) * pf::NBUCKETS + b]; }
 };
 
@@ -218,7 +218,7 @@ void rangePanel(const Mode& mode, const Decision& d, const std::array<double, pf
     bool anyChart = false;
     for (int b = 0; b < pf::NBUCKETS; b++) anyChart |= mode.charted(d.node, b);
     if (!mode.locked.empty() && !anyChart)
-        text(bold, mode.fallback, {PANEL.x + PANEL.width - 150, PANEL.y + 34}, 16, {230, 160, 60, 255});
+        text(bold, "no chart: " + mode.base + " solve", {PANEL.x + PANEL.width - 150, PANEL.y + 34}, 16, {230, 160, 60, 255});
 
     Vector2 m = GetMousePosition();
     int hover = -1;
@@ -251,7 +251,7 @@ void rangePanel(const Mode& mode, const Decision& d, const std::array<double, pf
     y += 66;
     int shown = hover >= 0 ? hover : highlight;
     if (shown >= 0) {
-        std::string src = "  (" + (mode.charted(d.node, shown) ? mode.name : std::string("Solved")) + ")";
+        std::string src = "  (" + (mode.charted(d.node, shown) ? mode.name : mode.base) + ")";
         DrawTextEx(font, ((hover >= 0 ? "Hand" : "Your hand") + src).c_str(), {x, y}, 15, 0, GREY);
         DrawTextEx(bold, pf::bucketName(shown).c_str(), {x, y + 18}, 26, 0, WHITE);
         actRows(st.probs(d.node, shown), x, y + 54);
@@ -780,21 +780,24 @@ int main(int argc, char** argv) {
     std::string hu = argc > 2 ? argv[2] : std::string(GetApplicationDirectory()) + "../data/hu_equity.bin";
     if (!eq.loadHuTable(hu)) std::fprintf(stderr, "no heads-up equity table at %s, sampling instead\n", hu.c_str());
     pf::RolloutConfig rc;
-    // Chart modes: the charts written over a chart-locked solve (uncharted spots best-respond to the charts)
-    // if that file exists, else over the plain solve. Re-applying the charts gives the mask and painter edits.
-    std::string app = GetApplicationDirectory();
-    Mode modes[3] = {{"Solver", "", "", strat}, {"GTO", app + "../ref", app + "../data/strategy_gto.bin", strat},
-                     {"PTO", app + "../ref/pto", app + "../data/strategy_pto.bin", strat}};
+    // Scratch: our solve. GTO / PTO: their charts written over the Anchored solve (GTO charts frozen, the
+    // rest solved against them), or over Scratch if that file is missing. Re-applying the charts gives the
+    // mask and picks up painter edits.
+    std::string app = GetApplicationDirectory(), af = app + "../data/strategy_anchored.bin";
+    pf::Strategy anchored = strat;
+    bool haveAnchored = anchored.load(af);
+    if (!haveAnchored) std::fprintf(stderr, "no Anchored solve at %s: GTO / PTO play their charts over Scratch\n", af.c_str());
+    std::string gap = haveAnchored ? "Anchored" : "Scratch";
+    Mode modes[3] = {{"Scratch", "", strat, {}, "Scratch"}, {"GTO", app + "../ref", anchored, {}, gap},
+                     {"PTO", app + "../ref/pto", anchored, {}, gap}};
     auto loadCharts = [&](Mode& m) {  // keeps the previous strategy if the charts don't load
-        pf::Strategy c = strat;
-        bool solved = c.load(m.bin);  // unchanged on failure
+        pf::Strategy c = haveAnchored ? anchored : strat;
         std::vector<uint8_t> l;
         std::string err;
         int n = pf::applyCharts(c, m.dir, &l, &err);
         if (n <= 0) return (void)std::fprintf(stderr, "%s: charts from %s not loaded: %s\n", m.name.c_str(), m.dir.c_str(), n < 0 ? err.c_str() : "no charts");
         m.st = std::move(c), m.locked = std::move(l);
-        m.fallback = solved ? "no chart, chart-locked solve" : "no chart, solver fallback";
-        std::fprintf(stderr, "%s: %d charts from %s over %s\n", m.name.c_str(), n, m.dir.c_str(), solved ? m.bin.c_str() : "the solve");
+        std::fprintf(stderr, "%s: %d charts from %s over the %s solve\n", m.name.c_str(), n, m.dir.c_str(), m.base.c_str());
     };
     loadCharts(modes[1]);
     loadCharts(modes[2]);
@@ -938,8 +941,8 @@ int main(int argc, char** argv) {
                 if (!inspector->frame()) inspector.reset();
             } else if (!painter->frame()) {
                 painter.reset();
-                for (auto& d : log) collect(d, true);  // rollouts may read modes[1].st; let them finish first
-                loadCharts(modes[1]);
+                for (auto& d : log) collect(d, true);  // rollouts may read the modes' strategies; let them finish first
+                loadCharts(modes[1]), loadCharts(modes[2]);  // pick up painter edits
             } else if (painter->inspect) {
                 painter->inspect = false;
                 inspector.emplace(strat);
@@ -1137,8 +1140,9 @@ int main(int argc, char** argv) {
             text(bold, m, {W - 16 - w / 2, 33}, 15, WHITE);
             bool heroTurn = !hand->done() && turn == hero && replayAt >= replay.size();
             if (heroTurn && mode && !modes[mode].charted(node, pf::bucket(hand->cards[hero][0], hand->cards[hero][1]))) {
-                float fw = MeasureTextEx(bold, modes[mode].fallback.c_str(), 14, 0).x;
-                text(bold, modes[mode].fallback, {W - 16 - fw / 2, 62}, 14, {230, 160, 60, 255});
+                std::string nc = "no chart: " + modes[mode].base + " solve";
+                float fw = MeasureTextEx(bold, nc.c_str(), 14, 0).x;
+                text(bold, nc, {W - 16 - fw / 2, 62}, 14, {230, 160, 60, 255});
             }
         }
         std::string drill = "Drill: " + std::string(pf::spotName(filter.type)) + ", " + POS_PICK[filter.pos + 1];

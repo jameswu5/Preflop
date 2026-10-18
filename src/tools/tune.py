@@ -33,12 +33,12 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 BUILD = os.path.join(ROOT, "build")
 REF = os.path.join(ROOT, "ref")  # --ref
 # Start point = current defaults in utility.h; step = initial search step per parameter.
-START = {"oop": 0.7, "flush": 0.15, "conn": 0.05, "set": 0.1, "dom": 0.1, "low": 0.03, "spr": 3.0, "init": 0.25, "pairLow": 0.02, "oopCall": 1.0, "callerShrink": 0.0, "ipCall": 1.0, "domPot": 0.0}
+START = {"oop": 0.7, "flush": 0.15, "conn": 0.05, "set": 0.1, "dom": 0.1, "low": 0.03, "spr": 3.0, "init": 0.25, "pairLow": 0.02, "oopCall": 1.0, "callerShrink": 0.0, "ipCall": 0.7, "domPot": 0.0}
 # Sanity bands on open %: the reference open width +/- 2.5 points (ref/gto_open_lj.txt 16.3%,
 # gto_open_btn.txt 42.1% of combos); PENALTY per point outside. Re-derive if ref/ changes.
 BANDS = {"UTG": (13.8, 18.8), "BTN": (39.6, 44.6)}
 PENALTY = 0.005
-STEP = {"oop": 0.05, "flush": 0.02, "conn": 0.01, "set": 0.03, "dom": 0.02, "low": 0.01, "spr": 1.0, "init": 0.05, "pairLow": 0.01, "oopCall": 0.1, "callerShrink": 0.1, "ipCall": 0.1, "domPot": 0.02}
+STEP = {"oop": 0.05, "flush": 0.02, "conn": 0.01, "set": 0.03, "dom": 0.02, "low": 0.01, "spr": 1.0, "init": 0.1, "pairLow": 0.01, "oopCall": 0.1, "callerShrink": 0.1, "ipCall": 0.2, "domPot": 0.05}
 BOARDS = 25  # multiway equity boards per estimate; K=25 is within noise of K=100 (validation.md)
 
 

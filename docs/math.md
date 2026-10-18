@@ -66,7 +66,7 @@ Every $N$ iterations ($N$ = `SolverConfig::discountEvery`), at $t = kN$, every r
 
 $$\prod_{k=j}^{K} \frac{k}{k+1} = \frac{j}{K+1} \;\propto\; j.$$
 
-Both regrets and the average strategy therefore weight block $j$ linearly, which is Linear CFR (Brown & Sandholm, 2019) applied a block at a time: early, poorly informed iterations fade out. One multiply per table entry every $N$ iterations costs almost nothing.
+Both regrets and the average strategy therefore weight block $j$ linearly, which is Linear CFR (Brown & Sandholm, 2019) applied a block at a time: early, poorly informed iterations fade out. The code never rescales the tables: it adds each increment of block $j$ multiplied by $j$, so after $K$ blocks they hold $(K+1)$ times the discounted sums. Regret matching and $\bar\sigma$ are invariant to that common factor.
 
 ### Caveats for six players
 

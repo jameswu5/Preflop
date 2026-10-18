@@ -14,6 +14,7 @@ def traverse(hand, node, traverser):
     if hand.done():
         return utility(hand)[traverser]              # math.md, terminal payoffs
     p = actor[node]
+    w = (t - 1) // 10_000 + 1                         # linear weight: the iteration's block number
     if p < root_folds:                               # short-handed solve: seat forced to fold
         return traverse(hand.apply(F), next[node][F], traverser)
     b = bucket(hand.cards[p])                        # 0..168
@@ -22,18 +23,19 @@ def traverse(hand, node, traverser):
         v = {a: traverse(hand.apply(a), next[node][a], traverser) for a in legal[node]}
         ev = sum(sigma[a] * v[a] for a in legal[node])
         for a in legal[node]:
-            regret[node][b][a] += v[a] - ev
+            regret[node][b][a] += w * (v[a] - ev)
         return ev
-    strat_sum[node][b] += sigma                      # unweighted; the discount below makes it linear
+    strat_sum[node][b] += w * sigma
     a = sample(sigma)
     return traverse(hand.apply(a), next[node][a], traverser)
 
 for t in 1..T:
     traverse(deal_six_hands(), root, traverser=root_folds + t % (6 - root_folds))
-    if t % 10_000 == 0:                              # Linear CFR by block discounting
-        k = t // 10_000
-        regret *= k / (k + 1); strat_sum *= k / (k + 1)
 ```
+
+- Linear CFR (math.md, block discounting) is applied lazily: instead of multiplying both tables by $k/(k+1)$ every 10,000 iterations, each increment is multiplied by its block number. The tables then hold the discounted sums times (blocks done + 1), and since regret matching and the average are both scale-free, the strategies are the same up to float rounding, with no pass over the tables.
+- In the real code, `Hand` is only used to deal. Each terminal's payoff inputs (contributions, pot after rake, SPR, who is live, last to act, last raiser, all-in) are fixed by the betting history, so the solver precomputes them per terminal (`Terminal` in `utility.h`) and traverses the tree by node index.
+- Multiway equity evaluates 7-card hands with an additive key per card (rank digits and suit counts in one integer), so the board's key is summed once and shared by every player; non-flush hands are a table lookup built from PokerHandEvaluator at startup, flushes fall back to it directly. Results are identical to calling the evaluator.
 
 - The tree is built once by walking `Hand` (`Tree` in `strategy.h`): per node, the actor, a legal-action mask and a child index per action (-1 at terminals). `regret` and `strat_sum` are flat `float` arrays of shape `[nodes][169][3]`. Traversal is recursive; the tree is only a few raise levels deep.
 - The final strategy is `strat_sum` normalized per (node, class). `Strategy::save` writes it with the `Config` and `RealizationConfig` it was solved with, so the trainer uses the same rules and payoff model.
@@ -41,8 +43,8 @@ for t in 1..T:
 
 ## Threads
 
-`solve --threads N` runs iterations in parallel, Hogwild-style: N threads share the tables and update them with relaxed atomic adds. Each thread has its own RNG, seeded from the solver's RNG. Parallel blocks end on discount boundaries, so the discount itself runs between blocks with no concurrent writers. With one thread a run is bit-reproducible for a fixed `--seed`; with more it is not.
+`solve --threads N` runs iterations in parallel, Hogwild-style: N threads share the tables and update them with relaxed atomic adds. Each thread has its own RNG, seeded from the solver's RNG, and runs its share of the chunk with no synchronization (the lazy linear weights need no discount pass). With one thread a run is bit-reproducible for a fixed `--seed`; with more it is not.
 
 ## Checkpoints
 
-`--checkpoint file` is resumed if it exists and is rewritten after every chunk. It stores the full state: Config, SolverConfig, iteration count, RNG state, regrets and strategy sums. Writes go to a temp file that is then renamed, so a crash never leaves a half-written file. A checkpoint made with a different Config or SolverConfig is refused, with one exception: a different `RealizationConfig` is accepted as a warm start (regrets kept, strategy average and iteration count restarted). `tune.py` uses this, and `--reset-average` forces the same restart explicitly.
+`--checkpoint file` is resumed if it exists and is rewritten after every chunk. It stores the full state: Config, SolverConfig, iteration count, RNG state, regrets and strategy sums (at the lazy scale above; older versions stored them rescaled and are converted on load). Writes go to a temp file that is then renamed, so a crash never leaves a half-written file. A checkpoint made with a different Config or SolverConfig is refused, with one exception: a different `RealizationConfig` is accepted as a warm start (regrets kept, strategy average and iteration count restarted). `tune.py` uses this, and `--reset-average` forces the same restart explicitly.

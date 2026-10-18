@@ -14,7 +14,7 @@ namespace pf {
 struct SolverConfig {
     int rootFolds = 0;            // seats UTG.. forced to fold at the root: 4 = SB vs BB, 3 = BTN/SB/BB
     int flopBoards = 100;         // boards per multiway flop-terminal equity estimate
-    long discountEvery = 10000;   // linear weighting: every N iterations scale regrets and strategy sums by k/(k+1)
+    long discountEvery = 10000;   // linear weighting: iterations in the k-th block of N weigh k (docs/solver.md)
     RealizationConfig realization;
 };
 
@@ -23,8 +23,8 @@ public:
     // `eq` must outlive the solver; load its HU table first for exact heads-up equity.
     Solver(const Config& cfg, const SolverConfig& sc, const Equity& eq, uint32_t seed);
 
-    // threads > 1 runs iterations in parallel blocks that end on discount boundaries; each block's
-    // threads are seeded from the solver's RNG. Faster, but results vary run to run.
+    // threads > 1 splits the iterations over threads seeded from the solver's RNG. Faster, but
+    // results vary run to run.
     void run(long iterations, int threads = 1);
     long iterations() const { return t_; }
     const Tree& tree() const { return tree_; }
@@ -53,10 +53,23 @@ private:
         std::array<std::array<double, NPOS>, 64> eq[2];  // [allIn][live mask]
         uint64_t valid[2] = {0, 0};
     };
-    double traverse(const Hand& h, int node, int traverser, std::mt19937& rng, bool shared, EquityCache& cache);
+    // Per-iteration state: the deal, each seat's hand class, and the equity cache.
+    struct Deal {
+        Holes cards;
+        int bucket[NPOS];
+        EquityCache cache;
+        float weight;  // of this iteration's increments
+    };
+    // Linear CFR without rescaling the tables: iteration t adds with weight k = its block number, so
+    // the tables hold scale(t_) = (blocks done + 1) times the discounted sums. Both regret matching
+    // and the average are scale-free; checkpoints store the tables as they are.
+    float weight(long t) const { return sc_.discountEvery > 0 ? float((t - 1) / sc_.discountEvery + 1) : 1; }
+    float scale(long t) const { return weight(t + 1); }
+    void rescale(float factor);
+    double traverse(Deal& d, int node, int traverser, std::mt19937& rng, bool shared);
+    double terminal(Deal& d, int edge, int traverser, std::mt19937& rng);
     std::array<float, 3> regretMatch(int node, int bucket, bool shared) const;
     void iterate(long t, std::mt19937& rng, bool shared);
-    void discount(int threads);
 
     Config cfg_;
     SolverConfig sc_;
@@ -65,7 +78,9 @@ private:
     std::mt19937 rng_;
     long t_ = 0;
     long loadedT_ = 0;  // iteration count of the last loaded checkpoint, for resetAverage's memory
-    std::vector<std::array<float, 3>> regret_, stratSum_;  // [node * 169 + bucket]
+    // [node * 169 + bucket], scaled by scale(t_): see weight().
+    std::vector<std::array<float, 3>> regret_, stratSum_;
+    std::vector<Terminal> terminal_;  // [node * 3 + action] where that action ends the hand
 };
 
 }  // namespace pf

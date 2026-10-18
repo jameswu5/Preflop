@@ -261,12 +261,12 @@ int main(int argc, char** argv) {
         std::printf("locked %d charts, %ld (spot, class) entries\n", n, long(std::count(locked.begin(), locked.end(), 1)));
     }
     if (!ckPath.empty() && std::ifstream(ckPath).good()) {  // an existing checkpoint must load
-        if (!solver.loadCheckpoint(ckPath))
-            return std::fprintf(stderr, "cannot resume %s (different game or config, or corrupt)\n", ckPath.c_str()), 1;
+        if (std::string err; !solver.loadCheckpoint(ckPath, &err))
+            return std::fprintf(stderr, "cannot resume %s: %s\n", ckPath.c_str(), err.c_str()), 1;
         std::printf("resumed %s at iteration %ld\n", ckPath.c_str(), solver.iterations());
     }
-    if (!warmPath.empty() && !solver.loadCheckpoint(warmPath))
-        return std::fprintf(stderr, "cannot warm-start from %s\n", warmPath.c_str()), 1;
+    if (std::string err; !warmPath.empty() && !solver.loadCheckpoint(warmPath, &err))
+        return std::fprintf(stderr, "cannot warm-start from %s: %s\n", warmPath.c_str(), err.c_str()), 1;
     if (resetAvg) solver.resetAverage(memory), iters += solver.iterations();  // --iters counts new iterations
     if (seedGiven) solver.reseed(seed);  // an explicit --seed overrides the checkpoint's RNG state
 

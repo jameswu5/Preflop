@@ -64,26 +64,26 @@ int main() {
         act(h, BB, {F, C, R}, C);
         assert(h.done() && near(h.pot(), 4 * 2.5 + 0.5));
     }
-    {  // ex 1: BTN 3-bets CO open (IP) = 8.75 -> 8.8; opener may call, blinds fold/raise only
+    {  // ex 1: BTN 3-bets CO open (IP) = 3 * 2.5 = 7.5; opener may call, blinds fold/raise only
         Hand h(rng);
         foldTo(h, CO);
         act(h, CO, {F, R}, R);
-        assert(h.raiseTo() == 8.8);
+        assert(h.raiseTo() == 7.5);
         act(h, BTN, {F, C, R}, R);
-        assert(h.stack(BTN) == 91.2);
+        assert(h.stack(BTN) == 92.5);
         act(h, SB, {F, R}, F);
         act(h, BB, {F, R}, F);
         act(h, CO, {F, C, R}, C);
-        assert(h.done() && h.pot() == 19.1);
+        assert(h.done() && h.pot() == 16.5);
     }
-    {  // ex 2: BB 3-bets BTN open (OOP) = 11.25 -> 11.3; 4-bet IP 2.3x; 5-bet all-in; call/fold vs all-in
+    {  // ex 2: BB 3-bets BTN open (OOP) = 5 * 2.5 = 12.5; 4-bet IP 2x; 5-bet all-in; call/fold vs all-in
         Hand h(rng);
         foldTo(h, BTN);
         act(h, BTN, {F, R}, R);
         act(h, SB, {F, C, R}, F);
-        assert(h.raiseTo() == 11.3);
+        assert(h.raiseTo() == 12.5);
         act(h, BB, {F, C, R}, R);
-        assert(h.raiseTo() == 26);  // 2.3 * 11.3 = 25.99
+        assert(h.raiseTo() == 25);
         act(h, BTN, {F, C, R}, R);
         assert(near(h.raiseTo(), 100));
         act(h, BB, {F, C, R}, R);
@@ -91,7 +91,7 @@ int main() {
         act(h, BTN, {F, C}, C);
         assert(h.done() && near(h.pot(), 200.5));
     }
-    for (double sq : {1.0, 0.0}) {  // ex 3: BTN squeezes HJ open + CO call (IP) = 11.25 -> 11.3
+    for (double sq : {1.0, 0.0}) {  // ex 3: BTN squeezes HJ open + CO call (IP) = 3 * 2.5 + 2.5 = 10
         Config cfg;                  // squeezeCall: the cold caller may call the squeeze, or only fold/4-bet
         cfg.squeezeCall = sq;
         A coldVsSqueeze = sq ? A{F, C, R} : A{F, R};
@@ -99,12 +99,12 @@ int main() {
         foldTo(h, HJ);
         act(h, HJ, {F, R}, R);
         act(h, CO, {F, C, R}, C);
-        assert(h.raiseTo() == 11.3);
+        assert(h.raiseTo() == 10);
         act(h, BTN, {F, C, R}, R);
         act(h, SB, {F, R}, F);
         act(h, BB, {F, R}, F);
         act(h, HJ, {F, C, R}, F);
-        assert(h.raiseTo() == 31.1);  // CO is OOP to BTN: 2.75 * 11.3 = 31.075
+        assert(h.raiseTo() == 25.5);  // CO is OOP to BTN: 2.55 * 10
         act(h, CO, coldVsSqueeze, R);
         act(h, BTN, {F, C, R}, C);
         assert(h.done());
@@ -118,7 +118,7 @@ int main() {
         act(h, BB, {F, C, R}, R);  // squeeze
         act(h, CO, {F, C, R}, F);
         act(h, BTN, {F, C, R}, C);  // flats the squeeze
-        assert(h.done() && h.pot() == 2 * 13.8 + 2.5 + 0.5);
+        assert(h.done() && h.pot() == 2 * 15 + 2.5 + 0.5);  // squeeze 5 * 2.5 + 2.5
         Hand g(rng);
         foldTo(g, CO);
         act(g, CO, {F, R}, R);
@@ -137,40 +137,54 @@ int main() {
         act(h, BTN, {F, C, R}, R);
         act(h, SB, {F, R}, F);
     }
-    {  // ex 4: BB squeezes CO open + BTN call + SB overcall (OOP) = 16.25 -> 16.3
+    {  // ex 4: BB squeezes CO open + BTN call + SB overcall (OOP) = 5 * 2.5 + 2 * 2.5 = 17.5
         Hand h(rng);
         foldTo(h, CO);
         act(h, CO, {F, R}, R);
         act(h, BTN, {F, C, R}, C);
         act(h, SB, {F, C, R}, C);
-        assert(h.raiseTo() == 16.3);
+        assert(h.raiseTo() == 17.5);
         act(h, BB, {F, C, R}, R);
         act(h, CO, {F, C, R}, F);
         act(h, BTN, {F, C, R}, F);  // callers may flat the squeeze (squeezeCall default on)
         assert(!h.done());
         act(h, SB, {F, C, R}, F);
-        assert(h.done() && h.pot() == 23.8);
+        assert(h.done() && h.pot() == 25);
     }
-    {  // ex 5: BB 3-bets SB open (3bb, IP) = 10.5; SB 4-bets OOP 2.75x
+    {  // ex 5: BB 3-bets SB open (3bb, IP) = 9; SB 4-bets OOP 2.55x
         Hand h(rng);
         foldTo(h, SB);
         assert(near(h.raiseTo(), 3));
         act(h, SB, {F, R}, R);
-        assert(near(h.raiseTo(), 10.5));
+        assert(h.raiseTo() == 9);
         act(h, BB, {F, C, R}, R);
-        assert(h.raiseTo() == 28.9);  // 2.75 * 10.5 = 28.875
+        assert(h.raiseTo() == 23);  // 2.55 * 9 = 22.95
         act(h, SB, {F, C, R}, R);
         act(h, BB, {F, C, R}, F);
         assert(h.done());
     }
+    {  // reference sizes (pokertrainer GTO range viewer, docs/game-rules.md), straight from the defaults
+        auto at = [&](std::initializer_list<Act> acts) {
+            Hand h(rng);
+            for (Act a : acts) h.apply(a);
+            return h.raiseTo();
+        };
+        assert(at({}) == 2.5 && at({F, F, F, F}) == 3);         // opens
+        assert(at({F, F, R}) == 7.5);                           // BTN 3-bets a CO open
+        assert(at({F, F, R, F}) == 12.5 && at({F, F, R, F, F}) == 12.5);  // SB, BB 3-bet it
+        assert(at({F, F, F, F, R}) == 9);                       // BB 3-bets an SB open
+        assert(at({F, F, R, R, F, F}) == 19.1);                 // CO 4-bets BTN's 7.5 (site: 19; 2.55 can't hit 19 and 23)
+        assert(at({F, F, R, F, F, R}) == 25);                   // CO 4-bets BB's 12.5
+        assert(at({F, F, F, F, R, R}) == 23);                   // SB 4-bets BB's 9
+    }
     {  // cold 4-bet, cold 5-bet shove, multiway call/fold vs all-in
         Hand h(rng);
         act(h, UTG, {F, R}, R);
-        assert(h.raiseTo() == 8.8);
+        assert(h.raiseTo() == 7.5);
         act(h, HJ, {F, C, R}, R);
-        assert(h.raiseTo() == 20.2);  // 2.3 * 8.8 = 20.24
+        assert(h.raiseTo() == 15);  // CO is IP to HJ: 2 * 7.5
         act(h, CO, {F, R}, R);
-        assert(h.committed(CO) == 20.2 && h.stack(CO) == 79.8);
+        assert(h.committed(CO) == 15 && h.stack(CO) == 85);
         act(h, BTN, {F, R}, R);
         assert(near(h.committed(BTN), 100));
         act(h, SB, {F, C}, F);
@@ -179,7 +193,7 @@ int main() {
         act(h, HJ, {F, C}, F);
         assert(!h.done());
         act(h, CO, {F, C}, C);
-        assert(h.done() && h.pot() == 311.8);
+        assert(h.done() && h.pot() == 310.5);
     }
     {  // config file
         const char* path = "game_test.cfg";

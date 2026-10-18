@@ -56,7 +56,7 @@ public:
     // memoryBlocks / (memoryBlocks + K): 0 forgets them fastest, larger values keep them longer.
     void resetAverage(long memoryBlocks = 0);
     void reseed(uint32_t seed) { rng_.seed(seed); }  // e.g. independent runs from one checkpoint
-    bool loadCheckpoint(const std::string& path);
+    bool loadCheckpoint(const std::string& path, std::string* err = nullptr);  // err: why it failed
 
 private:
     // Equity depends only on the hole cards and who is still in, so within one iteration it is

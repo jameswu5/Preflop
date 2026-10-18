@@ -22,8 +22,8 @@ struct Card {
 struct Config {
     double sb = 0.5, bb = 1.0, stack = 100.0;
     double open = 2.5, sbOpen = 3.0;
-    double threeBetIP = 3.5, threeBetOOP = 4.5;
-    double fourBetIP = 2.3, fourBetOOP = 2.75;
+    double threeBetIP = 3.0, threeBetOOP = 5.0;  // x the open; reference sizes 7.5 IP, 12.5 from the blinds
+    double fourBetIP = 2.0, fourBetOOP = 2.55;   // x the 3-bet; game-rules.md has the reference sizes
     double tick = 0.1;  // raise sizes round to this (0.1bb = 1 cent at 10NL); <= 0 disables
     // 1 = a player who cold-called the open may call a squeeze (one 3-bet); 0 = fold or 4-bet only.
     // A double so config files and the bytewise config checks treat it like every other field.

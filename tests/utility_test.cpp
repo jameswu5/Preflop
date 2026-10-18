@@ -155,14 +155,14 @@ int main() {
         auto u = payoffs(srp, eq, s5);
         assert(near(u[CO], co / (co + 1) * 6.5 - 2.5) && near(u[BTN], 1 / (co + 1) * 6.5 - 2.5) && near(total(u), 0));
 
-        Hand tb(rng, NR);  // CO opens, BTN 3-bets to 8.8, CO calls: pot 19.1, 91.2 behind, SPR 4.77
+        Hand tb(rng, NR);  // CO opens, BTN 3-bets to 7.5, CO calls: pot 16.5, 92.5 behind, SPR 5.6
         play(tb, {F, F, R, R, F, F, C});
-        assert(tb.done() && near(tb.pot(), 19.1) && tb.lastRaiser() == BTN);
-        double spr = 91.2 / 19.1;
+        assert(tb.done() && near(tb.pot(), 16.5) && tb.lastRaiser() == BTN);
+        double spr = 92.5 / 16.5;
         co = 1 - 0.2 * spr / (spr + 5);  // shrinks more than in the SRP
         assert(co > 0.85);
         u = payoffs(tb, eq, s5);
-        assert(near(u[CO], co / (co + 1) * 19.1 - 8.8) && near(total(u), 0));
+        assert(near(u[CO], co / (co + 1) * 16.5 - 7.5) && near(total(u), 0));
 
         RealizationConfig ini = rc;  // initiative alone: CO raised, BTN called
         ini.init = 0.2;
@@ -175,7 +175,7 @@ int main() {
         double btn = 1.2;
         co = 1 - 0.2 * spr / (spr + 5);
         u = payoffs(tb, eq, ini);
-        assert(near(u[BTN], btn / (btn + co) * 19.1 - 8.8) && near(total(u), 0));
+        assert(near(u[BTN], btn / (btn + co) * 16.5 - 7.5) && near(total(u), 0));
 
         Equity e;  // random terminals, every R term on, default rake: payoffs sum to -rake
         RealizationConfig all;

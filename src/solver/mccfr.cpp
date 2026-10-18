@@ -199,7 +199,11 @@ bool Solver::saveCheckpoint(const std::string& path) const {
     return std::rename(tmp.c_str(), path.c_str()) == 0;  // never leave a half-written checkpoint
 }
 
-bool Solver::loadCheckpoint(const std::string& path) {
+bool Solver::loadCheckpoint(const std::string& path, std::string* err) {
+    auto fail = [&](const char* why) {
+        if (err) *err = why;
+        return false;
+    };
     std::ifstream in(path, std::ios::binary);
     char magic[4];
     uint32_t version, rlen;
@@ -210,18 +214,20 @@ bool Solver::loadCheckpoint(const std::string& path) {
         !get(in, cfg) ||
         !in.read(reinterpret_cast<char*>(&sc), version < 8 ? offsetof(SolverConfig, realization) + REALIZATION_V1_SIZE : sizeof sc) ||
         !get(in, t) || !get(in, rlen) || rlen > 1 << 16)
-        return false;
+        return fail("not a checkpoint, or an unsupported version");
     bool newR = std::memcmp(&sc.realization, &sc_.realization, sizeof sc.realization) != 0;
     sc.realization = sc_.realization;  // R may differ: warm start
     sc.flopBoards = sc_.flopBoards;    // estimation precision, not part of the game
-    if (std::memcmp(&cfg, &cfg_, sizeof cfg) || std::memcmp(&sc, &sc_, sizeof sc)) return false;
+    if (std::memcmp(&cfg, &cfg_, sizeof cfg))
+        return fail("made for a different game Config (bet sizes, stack, blinds, rake, ...): use the --config it was made with, or re-solve");
+    if (std::memcmp(&sc, &sc_, sizeof sc)) return fail("made with different solver settings (--seats or discountEvery)");
     std::string r(rlen, '\0');
     std::mt19937 rng;
-    if (!in.read(r.data(), rlen) || !(std::istringstream(r) >> rng)) return false;
+    if (!in.read(r.data(), rlen) || !(std::istringstream(r) >> rng)) return fail("corrupt RNG state");
     std::vector<std::array<float, 3>> regret(regret_.size()), stratSum(stratSum_.size());
     if (!in.read(reinterpret_cast<char*>(regret.data()), regret.size() * sizeof regret[0]) ||
         !in.read(reinterpret_cast<char*>(stratSum.data()), stratSum.size() * sizeof stratSum[0]) || in.peek() != EOF)
-        return false;
+        return fail("truncated or corrupt tables");
     t_ = loadedT_ = long(t), rng_ = rng, regret_ = std::move(regret), stratSum_ = std::move(stratSum);
     if (version < 7) rescale(scale(t_));
     if (newR) resetAverage();

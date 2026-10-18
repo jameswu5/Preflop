@@ -79,7 +79,7 @@ int main() {
         RolloutConfig rc;
         rc.deals = 50000;
         auto ev = rollout(s, e, *sp, rng, rc);
-        assert(near(ev[int(F)], 0) && near(ev[int(R)], 4));  // 3-bet to 8.8 takes the 2.5 open + blinds
+        assert(near(ev[int(F)], 0) && near(ev[int(R)], 4));  // the 3-bet takes the 2.5 open + blinds
 
         if (e.loadHuTable(DATA_DIR "/hu_equity.bin")) {
             // Call: HU flop vs UTG's pair range, by exact enumeration over UTG combos.

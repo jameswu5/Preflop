@@ -146,11 +146,17 @@ int main() {
                std::memcmp(&t.realization(), &s.realization(), sizeof(RealizationConfig)) == 0);
         std::remove("solver_test.strat");
     }
-    if (std::ifstream(DATA_DIR "/6max.ck").good()) {  // older checkpoint versions still load, new R fields default
-        Solver a(Config{}, SolverConfig{}, eq, 1), b(Config{}, SolverConfig{}, eq, 1);
+    if (Config ck; std::ifstream(DATA_DIR "/6max.ck", std::ios::binary).seekg(8).read(reinterpret_cast<char*>(&ck), sizeof ck)) {
+        // older checkpoint versions still load, new R fields default; under the game they were made for
+        // (the raw Config after "PFCK" + version), which may predate the current default sizes
+        std::string err;
+        Config sizes = ck;
+        sizes.threeBetIP += 0.5;
+        assert(!Solver(sizes, SolverConfig{}, eq, 1).loadCheckpoint(DATA_DIR "/6max.ck", &err) && err.find("Config") != std::string::npos);
+        Solver a(ck, SolverConfig{}, eq, 1), b(ck, SolverConfig{}, eq, 1);
         SolverConfig other;
         other.realization.ipCall = 0.9;
-        Solver c(Config{}, other, eq, 1);
+        Solver c(ck, other, eq, 1);
         assert(c.loadCheckpoint(DATA_DIR "/6max.ck") && c.iterations() == 0);  // R differs only in ipCall: warm start
         assert(a.loadCheckpoint(DATA_DIR "/6max.ck") && a.saveCheckpoint("solver_test.ck"));
         assert(b.loadCheckpoint("solver_test.ck") && b.iterations() == a.iterations());

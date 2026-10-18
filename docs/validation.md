@@ -40,12 +40,13 @@ Fold is the remainder. An optional `category:` line (e.g. `open`, `vs_open`, `vs
 - The low-card penalty applies to offsuit hands only: small pairs and suited connectors realize through sets and draws.
 - R also depends on the pot: the hand-class/position deviation shrinks toward 1 as SPR falls (3-bet and 4-bet pots), with an optional bonus for the last aggressor (`spr`, `init`). With a pot-independent R, suited hands preferred big pots, so the solve 3-bet suited broadways and flatted offsuit ones, the reverse of real solvers.
 - Squeeze calls (`squeezeCall`, game-rules.md) are on: forbidding them made every cold call expensive and pushed the solve toward 3-bet-or-fold.
-- Reference caveats: the pokerskill SB open chart is set aside (`ref/rfi_5_sb.txt.off`) because it is identical to its BTN "always raise" range. Its BTN vs CO chart 3-bets the suited broadways and flats the offsuit ones, the reverse of the usual solver pattern, so it pulls the fit away from that pattern. Charts that separate flats from 3-bets, from a real solver, matter more than further fitting.
+- Reference sets: `ref/` holds the target set, the mixed-strategy GTO charts of the pokertrainer.se range viewer (`gto_*.txt`, read by `src/tools/scrape_ranges.py`); `ref/pto/` holds the same site's PTO charts, used only as a trainer mode. Older pure-strategy charts sit in `ref/simple/` and are not scored (subfolders are ignored). Pure charts cap how close an equilibrium can get, and fitting to them pulls the realization model toward their simplifications. The game's raise sizes (game-rules.md) match the target set's, so differences are not sizing artefacts.
 
 ## Reference data
 
 No free bulk export of solved ranges exists, and most sellers' terms likely prohibit scraping or redistribution. Use these as **comparison/validation sources for personal use**:
 
+- **pokertrainer.se range viewer:** GTO and PTO charts for every 6-max 100bb cash spot in the open / 3-bet / 4-bet / 5-bet tree, with mixed frequencies per hand and the raise size per spot. `src/tools/scrape_ranges.py` reads them through a browser into `ref/` (needs Playwright).
 - **Simple Preflop:** free viewer for browsing solved ranges. Several sellers' range sets can be opened in it. Verify the export format before building a loader around it.
 - **Solved Poker (Gumroad):** paid 6-max 100bb NLHE sets at various rake levels (the no-rake set was $199 when checked). They use simplified trees: 2.5bb opens, no limping, 3-bet-or-fold from most positions. Matching their sizing rules in our config makes comparison easier.
 - **Cash Game Hero, Upswing Lab (Advanced Solver Ranges), Poker Academy:** other range/chart sources, mostly sold as charts rather than data exports.

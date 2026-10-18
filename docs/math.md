@@ -218,5 +218,5 @@ This is self-normalized importance sampling: consistent as $N$ grows, with $O(1/
 1. **Equity table.** `gen_equity` writes the exact heads-up table (§3.1). It never changes.
 2. **Validate the solver on a small game.** Solve SB vs BB with rake off (a config with `rake = 0`), where CFR has its guarantee, and run the indifference check (§5).
 3. **Fit $\theta$.** Run `tune.py` against the reference charts in `ref/` (§4).
-4. **Re-solve.** Copy the fitted values into the `RealizationConfig` defaults and run a long 6-max solve from scratch at the full board count $K$ (the command is in the README). The strategy file records the $\theta$ it was solved with, so the trainer's rollouts use the same payoff model.
+4. **Re-solve.** Copy the fitted values into the `RealizationConfig` defaults and re-run the Scratch solve, then the Anchored one, at the full board count $K$ (commands in the README and solver.md). The strategy file records the $\theta$ it was solved with, so the trainer's rollouts use the same payoff model.
 5. **Check.** Watch the strategy change (§5), run `solve --report` for the sanity metrics, and run `validate` for the per-spot distances to the references ([validation.md](validation.md#tools)).

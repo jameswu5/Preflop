@@ -36,7 +36,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 BUILD = os.path.join(ROOT, "build")
 REF = os.path.join(ROOT, "ref")  # --ref
 # Start point = current defaults in utility.h; step = initial search step per parameter.
-START = {"oop": 0.7, "flush": 0.16, "conn": 0.05, "set": 0.1, "dom": 0.1, "low": 0.03, "spr": 3.0, "init": 0.2, "pairLow": 0.01, "oopCall": 1.0, "callerShrink": 0.0, "ipCall": 0.8, "domPot": 0.0}
+START = {"oop": 0.706, "flush": 0.16685, "conn": 0.05041, "set": 0.1231, "dom": 0.1087, "low": 0.039475, "spr": 1.525, "init": 0.21775, "pairLow": 0.007124, "oopCall": 1.0225, "callerShrink": 0.0, "ipCall": 0.8345, "domPot": 0.033245}
 # Sanity bands on open %: the reference open width +/- 2.5 points (ref/gto_open_lj.txt 16.3%,
 # gto_open_btn.txt 42.1% of combos); PENALTY per point outside. Re-derive if ref/ changes.
 BANDS = {"UTG": (13.8, 18.8), "BTN": (39.6, 44.6)}

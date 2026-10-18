@@ -31,8 +31,8 @@ from scipy.optimize import minimize
 # scale), and bounds. ip is fixed by default: R only matters up to a common factor.
 FIELDS = ["ip", "oop", "flush", "conn", "set", "dom", "low", "spr", "init", "pairLow", "oopCall",
           "callerShrink", "ipCall", "domPot"]
-DEFAULT = dict(ip=1, oop=0.7, flush=0.16, conn=0.05, set=0.1, dom=0.1, low=0.03, spr=3, init=0.2,
-               pairLow=0.01, oopCall=1, callerShrink=0, ipCall=0.8, domPot=0)
+DEFAULT = dict(ip=1, oop=0.706, flush=0.16685, conn=0.05041, set=0.1231, dom=0.1087, low=0.039475, spr=1.525,
+               init=0.21775, pairLow=0.007124, oopCall=1.0225, callerShrink=0, ipCall=0.8345, domPot=0.033245)
 STEP = dict(ip=0.05, oop=0.05, flush=0.02, conn=0.01, set=0.03, dom=0.02, low=0.01, spr=1.0, init=0.1,
             pairLow=0.01, oopCall=0.1, callerShrink=0.1, ipCall=0.2, domPot=0.05)
 BOUNDS = dict(ip=(0.5, 1.5), oop=(0.2, 1.2), flush=(-0.2, 0.6), conn=(-0.1, 0.3), set=(-0.2, 0.6),
@@ -439,8 +439,9 @@ def selftest():
     assert near(R(c(low=0.5), True, False, 15, "72o"), 0.05)  # floored
     d = DEFAULT
     deflt = np.array([d[f] for f in FIELDS], float)
-    assert R(deflt, False, False, 1.3, "KJo") / R(deflt, True, False, 1.3, "KJo") == \
-        R(deflt, False, False, 18, "KJo") / R(deflt, True, False, 18, "KJo")  # callerShrink 0: no fade
+    d1 = c(**{**d, "oopCall": 1})  # isolate the position term: the hand terms then cancel in the ratio
+    assert near(R(d1, False, False, 1.3, "KJo") / R(d1, True, False, 1.3, "KJo"),
+                R(d1, False, False, 18, "KJo") / R(d1, True, False, 18, "KJo"))  # callerShrink 0: no fade
     print("port: straights, domination, realization match tests/utility_test.cpp")
 
     # planted theta: sample at the defaults, chart = softmax(EV / tau) at a theta 1-2 steps away

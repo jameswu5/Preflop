@@ -21,26 +21,27 @@ namespace pf {
 //         - (dom + domPot * reraised) * domination * (caller) - low * (12 - hi) * (offsuit non-pair)
 //         - pairLow * (12 - hi) * pair
 //   R = max(P * H * (1 + init * raiser), 0.05)
-// Defaults are the values fitted by src/tools/tune.py (docs/math.md §4). Neutral, position-only: every
-// term 0 but ip/oop, spr = 0, and oopCall = callerShrink = ipCall = 1.
+// Defaults: the tune.py fit (docs/math.md §4), moved halfway toward fit_realization.py's fixed-strategy
+// fit and confirmed with full solves (validation.md). Neutral, position-only: every term 0 but ip/oop,
+// spr = 0, and oopCall = callerShrink = ipCall = 1.
 // Keep this struct all doubles: it is compared bytewise and written raw into strategy files.
 struct RealizationConfig {
-    double ip = 1, oop = 0.7;  // position factors (ip = last to act postflop among the live players)
-    double flush = 0.16;       // suited hands
-    double conn = 0.05;        // per straight using both cards (straights()), scaled by g
-    double set = 0.1;          // pairs (set mining), scaled by g
-    double dom = 0.1;          // per point of domination() when calling, not when the last raiser
-    double low = 0.03;         // offsuit non-pairs: per rank the top card is below an ace
-    double spr = 3;            // pot depth: SPR at which g = 1/2; 0 = depth-independent (g = 1)
-    double init = 0.2;         // R *= 1 + init for the last raiser
-    double pairLow = 0.01;     // pairs: per rank below aces (overcards), at any depth
+    double ip = 1, oop = 0.706;  // position factors (ip = last to act postflop among the live players)
+    double flush = 0.16685;      // suited hands
+    double conn = 0.05041;       // per straight using both cards (straights()), scaled by g
+    double set = 0.1231;         // pairs (set mining), scaled by g
+    double dom = 0.1087;         // per point of domination() when calling, not when the last raiser
+    double low = 0.039475;       // offsuit non-pairs: per rank the top card is below an ace
+    double spr = 1.525;          // pot depth: SPR at which g = 1/2; 0 = depth-independent (g = 1)
+    double init = 0.21775;       // R *= 1 + init for the last raiser
+    double pairLow = 0.007124;   // pairs: per rank below aces (overcards), at any depth
     // Out-of-position callers (not last to act, not the last raiser); 1 = off, the same as everyone else.
-    double oopCall = 1;        // scales their playability bonuses (flush, conn, set): no position, no initiative
-    double callerShrink = 0;   // their position penalty fades with depth as 1 - (1 - oop) * (callerShrink * g + 1 - callerShrink)
+    double oopCall = 1.0225;     // scales their playability bonuses (flush, conn, set): no position, no initiative
+    double callerShrink = 0;     // their position penalty fades with depth as 1 - (1 - oop) * (callerShrink * g + 1 - callerShrink)
     // Callers in re-raised (3-bet+) pots. Appended after the fields above: files written before
     // these existed load with them neutral, ipCall 1 and domPot 0 (Strategy::load, Solver::loadCheckpoint).
-    double ipCall = 0.8;       // scales P for an in-position caller: calling a 3-bet in position is no free ride
-    double domPot = 0;         // extra domination penalty per point for any caller
+    double ipCall = 0.8345;      // scales P for an in-position caller: calling a 3-bet in position is no free ride
+    double domPot = 0.033245;    // extra domination penalty per point for any caller
 };
 // Size of RealizationConfig before ipCall/domPot, as stored by older files.
 constexpr size_t REALIZATION_V1_SIZE = offsetof(RealizationConfig, ipCall);

@@ -10,7 +10,8 @@ config/            # alternative game configs, key=value files (e.g. pushfold10.
 src/solver/        # cards, hand eval wrapper, equity, terminal utility, tree + strategy, MCCFR, ranges
 src/trainer/       # rules engine (game.*) and headless trainer core (trainer.*)
 src/gui/           # raylib frontend
-src/tools/         # gen_equity, solve, validate, audit (C++); tune.py, scrape_ranges.py
+src/tools/         # gen_equity, solve, validate, audit, sample_evs, gen_features (C++);
+                   # tune.py, fit_realization.py, scrape_ranges.py
 data/              # generated, git-ignored: hu_equity.bin, 6max.ck checkpoint, strategy_6max.bin (Scratch),
                    # strategy_anchored.bin (Anchored)
 ref/               # reference charts, git-ignored (personal use only): gto_*.txt (the validation target),

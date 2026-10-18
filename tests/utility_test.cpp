@@ -102,7 +102,8 @@ int main() {
         double g = 5 / 8.0, p = 1 - 0.2 * g, h = 1 + 0.03 * 2 * g - 0.05 * 1 - 0.03 * 1;
         assert(near(realization(hc, false, false, 5, c(K, 0), c(J, 1)), p * h));
         RealizationConfig def;
-        auto ratio = [&](const RealizationConfig& r, bool raiser, double spr) {  // OOP / IP
+        def.oopCall = 1;  // isolate the position term: the hand terms then cancel in the ratio
+        auto ratio =[&](const RealizationConfig& r, bool raiser, double spr) {  // OOP / IP
             return realization(r, false, raiser, spr, c(K, 0), c(J, 1)) / realization(r, true, raiser, spr, c(K, 0), c(J, 1));
         };
         // position matters less in shallow pots for raisers; OOP callers pay the full penalty by
@@ -201,6 +202,7 @@ int main() {
         };
         RealizationConfig def;
         def.callerShrink = 1;  // the previous formula: every OOP player's penalty fades with depth
+        def.oopCall = 1;       // and OOP callers keep their full playability bonus
         for (int x = 0; x < 13; ++x)
             for (int y = 0; y <= x; ++y)
                 for (int suit : {0, 1})  // suited and offsuit (pairs: offsuit only)
@@ -213,7 +215,7 @@ int main() {
                             }
 
         const Card a5s[2] = {c(12, 2), c(3, 2)};
-        double g = 5 / 8.0;  // SPR 5, spr 3
+        double g = 5 / (5 + def.spr);  // SPR 5
         double play = def.flush + def.conn * straights(a5s[0], a5s[1]) * g;  // A5s: suited, 1 straight
         RealizationConfig a1 = def;  // A1: OOP callers keep half their playability bonus
         a1.oopCall = 0.5;

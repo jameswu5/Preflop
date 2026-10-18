@@ -1,0 +1,25 @@
+% Notation page. Owner: conductor; agents add rows for symbols they introduce.
+\chapter*{Notation}
+\addcontentsline{toc}{chapter}{Notation}
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+Symbol & Meaning \\
+\midrule
+$\Players = \{1,\dots,n\}$, $\chance$ & players; the chance player \\
+$\Hist$, $\Term$ & decision histories; terminal histories \\
+$P(h)$, $\Act(h)$ & player to act at $h$; legal actions at $h$ \\
+$\Info_i$, $I$ & player $i$'s information partition; an information set \\
+$\strat$, $\strat^t$, $\avgstrat$ & a behavioural strategy profile; the iterate at time $t$; the average strategy \\
+$\reach^\strat(h)$, $\reach^\strat_i(h)$, $\reach^\strat_{-i}(h)$ & reach probability; player $i$'s part; everyone else's (chance included) \\
+$u_i$ & utility of player $i$ \\
+$\cfv_i^\strat(I)$, $\cfv_i^\strat(I,a)$ & counterfactual value of $I$; with $a$ forced at $I$ \\
+$R^T(I,a)$, $R^T_+$ & cumulative counterfactual regret; its positive part \\
+$\expl(\strat)$ & exploitability \\
+$k \in \{0,\dots,168\}$, $\bucket(x)$, $n_k$ & hand class; the class of combo $x$; combos in class $k$ (6, 4 or 12) \\
+$\eq_i$ & equity of player $i$ \\
+$\pot$, $C_i$, $\rake(z)$ & pot; player $i$'s contribution; rake taken at terminal $z$ \\
+$\real_i$, $\theta$ & realization factor of player $i$; the realization parameters \\
+$\spr$, $\gamma$, $\kappa$ & stack-to-pot ratio at the flop; depth fade $\gamma = \spr/(\spr+\kappa)$; its half-life \\
+$\tau$ & softmax temperature \\
+\bottomrule
+\end{tabularx}

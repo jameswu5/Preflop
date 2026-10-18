@@ -126,6 +126,11 @@ def mean_sd(xs):
     return f"${m:.3f} \\pm {sd:.3f}$", m, sd
 
 
+# Gate 2 candidate names (data/gate2 file stems, kept in the .dat) -> table labels.
+GATE2_LABELS = dict(base="Previous defaults", tau1=r"Fit, $\tau = 1$", tau03=r"Fit, $\tau = 0.3$",
+                    a25=r"25\% towards fit", a50=r"50\% towards fit (adopted)", nospr=r"Fit with $\kappa$ kept at 3")
+
+
 def cmd_scores(a):
     tex = [HEADER.format("validate per category; mean +- sample sd over seeds"),
            "% columns: model & seeds & " + " & ".join(CATS) + " & overall\n"]
@@ -137,7 +142,7 @@ def cmd_scores(a):
         for c in CATS + ["overall"]:
             t, m, sd = mean_sd([r[2] if c == "overall" else r[1][c] for r in runs])
             cells.append(t), nums.append(f"{m:.4f} {sd:.4f}")
-        tex.append(f"{label} & {len(runs)} & " + " & ".join(cells) + " \\\\\n")
+        tex.append(f"{GATE2_LABELS.get(label, label)} & {len(runs)} & " + " & ".join(cells) + " \\\\\n")
         dat.append(re.sub(r"\W+", "_", label).strip("_") + f" {len(runs)} " + " ".join(nums) + "\n")
     Path(a.out_tex).write_text("".join(tex))
     Path(a.out_dat).write_text("".join(dat))

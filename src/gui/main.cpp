@@ -163,6 +163,12 @@ void actRows(const std::array<float, 3>& p, float x, float y) {  // "Raise 33.3%
     }
 }
 
+std::string pm(double se) {  // " ± 0.27"; "" for an exact value (fold, or the loss of the best action)
+    char b[24];
+    std::snprintf(b, sizeof b, " \u00b1 %.2f", se);
+    return se > 0 ? b : "";
+}
+
 // EV per action, the user's EV loss and verdict.
 void feedback(const Decision& d, float x, float y) {
     const pf::Config& cfg = d.sp->hand.config();  // EVs are net of rake (rollout -> utility)
@@ -182,13 +188,13 @@ void feedback(const Decision& d, float x, float y) {
         DrawRectangleRounded({x, y + 3, 14, 14}, .3f, 4, ACT_COL[a]);
         DrawTextEx(font, ACT_NAME[a], {x + 22, y}, 18, 0, {200, 204, 210, 255});
         char b[32];
-        std::snprintf(b, sizeof b, "%+.2f \u00b1 %.2f%s", f.ev[a], d.rs.se[a], a == int(f.choice) ? "  < you" : "");
+        std::snprintf(b, sizeof b, "%+.2f%s%s", f.ev[a], pm(d.rs.se[a]).c_str(), a == int(f.choice) ? "  < you" : "");
         DrawTextEx(bold, b, {x + 110, y}, 18, 0, WHITE);
         y += 24;
     }
     char b[64];
     if (std::isnan(f.evLoss)) std::snprintf(b, sizeof b, "No EV: path never reached");
-    else std::snprintf(b, sizeof b, "%s   loss %.2f \u00b1 %.2f bb", f.correct ? "Correct" : "Mistake", f.evLoss, f.evLossSe);
+    else std::snprintf(b, sizeof b, "%s   loss %.2f%s bb", f.correct ? "Correct" : "Mistake", f.evLoss, pm(f.evLossSe).c_str());
     DrawTextEx(bold, b, {x, y + 6}, 20, 0, std::isnan(f.evLoss) ? GREY : f.correct ? Color{80, 200, 120, 255} : Color{230, 80, 70, 255});
 }
 

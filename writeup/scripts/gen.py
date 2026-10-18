@@ -6,7 +6,7 @@ Subcommands (inputs are the raw tool outputs make_data.sh keeps in writeup/data/
   distance SCRATCH_GTO SCRATCH_PTO OUT_DAT OUT_TEX            validate per-spot distances
   scores OUT_TEX OUT_DAT LABEL=VALIDATE[,VALIDATE...] ...    per-category scores, mean +- sd over files
   lockreport LOG REFDIR OUT_TXT OUT_TEX                       solve --lock's top-N report
-  sanity LOG OUT_TEX                                          solve --report's sanity table
+  sanity LOG GTO_DUMP OUT_TEX                                 solve --report's widths, GTO charts' in brackets
   fit FIT_TAU03 FIT_TAU1 FIT_TAU3 OUT_KL_TEX OUT_THETA_TEX    fit_realization.py outputs
   gate1 LOG OUT_TEX                                           sample_evs --check output
   heat STRATEGY SAMPLES OUTDIR DATADIR                        realization factor per class, 4 roles
@@ -177,16 +177,35 @@ def cmd_lockreport(a):
     Path(a.out_tex).write_text("".join(tex))
 
 
+def combos(cls):
+    return 6 if len(cls) == 2 else 4 if cls[2] == "s" else 12
+
+
+def widths(cells):
+    """(fold, call, raise) % of the actor's range at a spot, weighted by combos and reach (solve's rangeAt)."""
+    tot = sum(combos(k) * reach for k, (_, _, reach) in cells.items())
+    r = sum(combos(k) * reach * p for k, (p, _, reach) in cells.items()) / tot
+    c = sum(combos(k) * reach * p for k, (_, p, reach) in cells.items()) / tot
+    return 100 * (1 - r - c), 100 * c, 100 * r
+
+
 def cmd_sanity(a):
-    tex = [HEADER.format("solve --report on the shipped Scratch solve"),
-           "% columns: seat & open % & BB vs open fold/call/3-bet % & opener vs BB 3-bet fold/call/4-bet % & AA, KK 4-bet %\n"]
+    gto = read_dump(a.gto_dump)
+    site = {v: k for k, v in SEATS.items()}
+    tex = [HEADER.format("solve --report on the shipped Scratch solve; GTO widths from the charts, same weighting"),
+           "% columns: seat & open & BB vs open fold/call/3-bet & opener vs BB 3-bet fold/call/4-bet, % as ours (GTO)\n"]
     pct = r"([\d.]+)%"
     for l in Path(a.log).read_text().splitlines():
         m = re.match(r"\s+(UTG|HJ|CO|BTN|SB)\s+" + pct + r" \|\s+" + r"\s+".join([pct] * 3) + r"\s+\|\s+" +
-                     r"\s+".join([pct] * 3) + r"\s+" + pct + r"\s+" + pct, l)
-        if m:
-            v = [f"{float(x):.1f}" for x in m.groups()[1:]]
-            tex.append(f"{m[1]} & {v[0]} & {v[1]} & {v[2]} & {v[3]} & {v[4]} & {v[5]} & {v[6]} & {v[7]} & {v[8]} \\\\\n")
+                     r"\s+".join([pct] * 3), l)
+        if not m:
+            continue
+        s = site[m[1]]
+        ours = [float(x) for x in m.groups()[1:]]
+        ref = ([widths(gto[f"gto_open_{s}"])[2]] + list(widths(gto[f"gto_vs_open_bb_vs_{s}"])) +
+               list(widths(gto[f"gto_vs_3bet_{s}_vs_bb"])))
+        tex.append(f"{m[1]} & " + " & ".join(f"{o:.1f} {{\\color{{gray}}({g:.1f})}}" for o, g in zip(ours, ref)) +
+                   " \\\\\n")
     assert len(tex) == 7, "expected 5 seat rows in the report"
     Path(a.out_tex).write_text("".join(tex))
 
@@ -306,7 +325,7 @@ def main():
     for x in ("log", "refdir", "out_txt", "out_tex"):
         lr.add_argument(x)
     sa = sub.add_parser("sanity")
-    sa.add_argument("log"), sa.add_argument("out_tex")
+    sa.add_argument("log"), sa.add_argument("gto_dump"), sa.add_argument("out_tex")
     fi = sub.add_parser("fit")
     for x in ("tau03", "tau1", "tau3", "out_kl", "out_theta"):
         fi.add_argument(x)

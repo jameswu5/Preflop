@@ -16,7 +16,6 @@
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
-#include <fstream>
 #include <map>
 
 #include "solver/range.h"
@@ -24,54 +23,6 @@
 
 using namespace pf;
 namespace fs = std::filesystem;
-
-struct Ref {
-    std::string name, spot, category = "other";
-    RangeFreqs act[3] = {};  // fold derived, call, raise
-    bool given[3] = {};
-    bool listedOnly = false;
-};
-
-static bool readRef(const fs::path& p, Ref& r, std::string& err) {
-    std::ifstream in(p);
-    r.name = p.stem().string();
-    bool haveSpot = false;
-    int ln = 0;
-    for (std::string line; std::getline(in, line);) {
-        ++ln;
-        line = line.substr(0, line.find('#'));
-        auto c = line.find(':');
-        if (line.find_first_not_of(" \t\r") == std::string::npos) continue;
-        if (c == std::string::npos) return err = "line " + std::to_string(ln) + ": expected key: value", false;
-        std::string key = line.substr(0, c), val = line.substr(c + 1);
-        key.erase(0, key.find_first_not_of(" \t"));
-        key.erase(key.find_last_not_of(" \t") + 1);
-        val.erase(0, val.find_first_not_of(" \t"));
-        val.erase(val.find_last_not_of(" \t\r") + 1);
-        if (key == "spot") {
-            r.spot = val, haveSpot = true;
-        } else if (key == "category") {
-            r.category = val;
-        } else if (key == "scope") {
-            if (val != "listed") return err = "line " + std::to_string(ln) + ": scope must be 'listed'", false;
-            r.listedOnly = true;
-        } else if (key == "raise" || key == "call") {
-            int a = key == "raise" ? int(Act::Raise) : int(Act::Call);
-            std::string e;
-            if (!parseRange(val, r.act[a], &e)) return err = "line " + std::to_string(ln) + ": " + e, false;
-            r.given[a] = true;
-        } else {
-            return err = "line " + std::to_string(ln) + ": unknown key '" + key + "'", false;
-        }
-    }
-    if (!haveSpot) return err = "missing 'spot:' line", false;
-    for (int b = 0; b < NBUCKETS; ++b) {
-        float rest = 1 - r.act[1][b] - r.act[2][b];
-        if (rest < -1e-4) return err = bucketName(b) + ": raise + call > 1", false;
-        r.act[0][b] = std::max(rest, 0.0f);
-    }
-    return true;
-}
 
 int main(int argc, char** argv) {
     std::string stratPath = DATA_DIR "/strategy_6max.bin", refDir = REF_DIR, only, exclude;
@@ -99,11 +50,11 @@ int main(int argc, char** argv) {
     std::map<std::string, std::pair<double, int>> byCat;  // category -> (sum of distances, spots)
     int scored = 0, bad = 0;
     for (auto& f : files) {
-        Ref r;
-        std::string err;
+        Chart r;
+        std::string err, name = f.stem().string();
         std::vector<Act> h;
         int node = -1;
-        if (readRef(f, r, err) && !parseHistory(r.spot, h)) err = "bad spot '" + r.spot + "'";
+        if (readChart(f.string(), r, err) && !parseHistory(r.spot, h)) err = "bad spot '" + r.spot + "'";
         if (err.empty() && (node = s.nodeFor(h)) < 0) err = "spot '" + r.spot + "' is not a decision node";
         for (int a = 1; a < 3 && err.empty(); ++a)
             if (r.given[a] && !(s.tree().legal[node] >> a & 1)) err = std::string(actName[a]) + " is not legal at this spot";
@@ -115,8 +66,7 @@ int main(int argc, char** argv) {
         double wsum = 0, dist = 0, ours[3] = {}, ref[3] = {};
         std::vector<std::pair<double, int>> diff;
         for (int b = 0; b < NBUCKETS; ++b) {
-            bool listed = r.act[1][b] > 0 || r.act[2][b] > 0;
-            if (r.listedOnly && !listed) continue;
+            if (r.listedOnly && !r.listed(b)) continue;
             double w = comboCount(b) * reach[b], d = 0;
             for (int a = 0; a < 3; ++a) {
                 d += std::fabs(s.probs(node, b)[a] - r.act[a][b]) / 2;
@@ -131,7 +81,7 @@ int main(int argc, char** argv) {
         }
         dist /= wsum;
         byCat[r.category].first += dist, ++byCat[r.category].second, ++scored;
-        std::printf("%-22s spot %-8s distance %.3f %s  ", r.name.c_str(), r.spot.empty() ? "(root)" : r.spot.c_str(), dist,
+        std::printf("%-22s spot %-8s distance %.3f %s  ", name.c_str(), r.spot.empty() ? "(root)" : r.spot.c_str(), dist,
                     r.listedOnly ? "(listed hands)" : "");
         for (int a = 2; a >= 0; --a)
             if (s.tree().legal[node] >> a & 1) std::printf(" %s %.1f%% (ref %.1f%%)", actName[a], 100 * ours[a] / wsum, 100 * ref[a] / wsum);

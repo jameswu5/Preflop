@@ -1,11 +1,14 @@
 #include "solver/strategy.h"
 
 #include <cstdio>
+#include <algorithm>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <random>
 
 #include "solver/cards.h"
+#include "solver/range.h"
 
 namespace pf {
 
@@ -108,6 +111,43 @@ bool Strategy::load(const std::string& path) {
     if (!in.read(reinterpret_cast<char*>(p.data()), p.size() * sizeof p[0]) || in.peek() != EOF) return false;
     cfg_ = cfg, rc_ = rc, tree_ = std::move(tree), p_ = std::move(p);
     return true;
+}
+
+int applyCharts(Strategy& s, const std::string& dir, std::vector<uint8_t>* locked, std::string* err) {
+    namespace fs = std::filesystem;
+    auto fail = [&](const std::string& e) {
+        if (err) *err = e;
+        return -1;
+    };
+    std::vector<fs::path> files;
+    std::error_code ec;
+    for (auto& e : fs::directory_iterator(dir, ec))
+        if (e.is_regular_file() && e.path().extension() == ".txt") files.push_back(e.path());
+    if (ec) return fail(dir + ": " + ec.message());
+    std::sort(files.begin(), files.end());
+    std::vector<std::pair<int, Chart>> charts;  // checked before anything is written
+    for (auto& f : files) {
+        Chart c;
+        std::string e;
+        std::vector<Act> h;
+        int node = -1;
+        if (!readChart(f.string(), c, e)) return fail(f.filename().string() + ": " + e);
+        if (!parseHistory(c.spot, h) || (node = s.nodeFor(h)) < 0)
+            return fail(f.filename().string() + ": spot '" + c.spot + "' is not a decision node");
+        for (int b = 0; b < NBUCKETS; ++b)
+            for (int a = 0; a < 3 && (!c.listedOnly || c.listed(b)); ++a)
+                if (c.act[a][b] > 0 && !(s.tree().legal[node] >> a & 1))
+                    return fail(f.filename().string() + ": " + bucketName(b) + " plays an illegal action");
+        charts.push_back({node, std::move(c)});
+    }
+    if (locked) locked->assign(size_t(s.tree().size()) * NBUCKETS, 0);
+    for (auto& [node, c] : charts)
+        for (int b = 0; b < NBUCKETS; ++b) {
+            if (c.listedOnly && !c.listed(b)) continue;
+            for (int a = 0; a < 3; ++a) s.probs(node, b)[a] = c.act[a][b];
+            if (locked) (*locked)[size_t(node) * NBUCKETS + b] = 1;
+        }
+    return int(charts.size());
 }
 
 }  // namespace pf

@@ -58,4 +58,13 @@ private:
     std::vector<std::array<float, 3>> p_;  // [node * 169 + bucket]
 };
 
+// Overwrites probs() at every spot with a chart in `dir` (top-level *.txt only; *.off and subdirs
+// ignored). With `scope: listed` only the named classes are overwritten. Returns the number of charts
+// applied, or -1 with `err` set on a malformed file or a spot that isn't a node of s.tree(). If `locked`
+// is non-null it is resized to tree().size() * NBUCKETS and set to 1 at [node * NBUCKETS + bucket] for
+// every entry taken from a chart, 0 elsewhere.
+// Charts are read in file-name order (a later chart for the same spot wins); on -1, s and `locked`
+// are unchanged. An unreadable `dir` is -1 too.
+int applyCharts(Strategy& s, const std::string& dir, std::vector<uint8_t>* locked = nullptr, std::string* err = nullptr);
+
 }  // namespace pf

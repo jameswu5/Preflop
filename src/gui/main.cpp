@@ -348,35 +348,6 @@ std::string actLabel(const pf::Hand& h, pf::Act a) {  // "Fold", "Call 2.5", "Ra
            fmt(a == pf::Act::Call ? std::min(h.currentBet(), h.committed(p) + h.stack(p)) : h.raiseTo());
 }
 
-std::string trim(std::string s) {
-    s.erase(0, s.find_first_not_of(" \t\r"));
-    s.erase(s.find_last_not_of(" \t\r") + 1);
-    return s;
-}
-
-// Reads a ref file: '#' lines are kept as comments, then "spot:", "raise:", "call:" (a trailing "# ..." is ignored).
-bool readRef(const std::string& path, std::string& spot, pf::RangeFreqs (&f)[3], std::string& comments, std::string& err) {
-    std::ifstream in(path);
-    if (!in) return err = "can't open", false;
-    bool hasSpot = false;
-    comments.clear();
-    for (auto& x : f) x.fill(0);
-    for (std::string line; std::getline(in, line);) {
-        if (line.starts_with('#')) {
-            comments += line + "\n";
-            continue;
-        }
-        line = trim(line.substr(0, line.find('#')));
-        if (line.empty()) continue;
-        auto c = line.find(':');
-        std::string k = trim(line.substr(0, c)), v = c == std::string::npos ? "" : trim(line.substr(c + 1));
-        if (k == "spot") spot = v, hasSpot = true;
-        else if (k != "raise" && k != "call") return err = "unknown line '" + line + "'", false;
-        else if (!pf::parseRange(v, f[k == "raise" ? 2 : 1], &err)) return err = k + ": " + err, false;
-    }
-    return hasSpot || (err = "no spot line", false);
-}
-
 struct Painter {
     const pf::Strategy& st;
     std::string dir;                  // the repo's ref/
@@ -389,6 +360,8 @@ struct Painter {
     bool overlay = false;             // solved strategy strip under each cell
     bool stroke = false, dirty = false;
     std::string path, comments, status;  // path "" = not saving (unreadable file in the way)
+    std::string category;             // kept from the loaded file ("other" = no line)
+    bool listedOnly = false;          // likewise its "scope: listed"
     std::vector<std::string> files;
     bool inspect = false;             // asks main to open the R inspector for this spot
 
@@ -422,23 +395,20 @@ struct Painter {
         for (auto& x : freq) x.fill(0);
         brush = legal(2) ? 2 : 1;
         comments = "# painted in the preflop GUI\n";
+        category = "other", listedOnly = false;
         path = dir + "/" + POS_NAME[st.actor(node)] + "_" + (h.empty() ? "open" : letters()) + ".txt";
     }
 
     bool load(const std::string& p) {
-        std::string spot, com, err;
-        pf::RangeFreqs f[3];
-        if (!readRef(p, spot, f, com, err)) return status = name(p) + ": " + err, false;
+        pf::Chart c;
+        std::string err;
+        if (!pf::readChart(p, c, err)) return status = name(p) + ": " + err, false;
         std::vector<pf::Act> h;
-        for (char c : spot) {
-            auto i = std::string("FCR").find(c);
-            if (i == std::string::npos) return status = name(p) + ": bad spot letter '" + c + "'", false;
-            h.push_back(pf::Act(i));
-        }
+        if (!pf::parseHistory(c.spot, h)) return status = name(p) + ": bad spot '" + c.spot + "'", false;
         if (st.nodeFor(h) < 0) return status = name(p) + ": spot not in the tree", false;
         setSpot(h);
-        std::copy(std::begin(f), std::end(f), std::begin(freq));
-        comments = com;
+        std::copy(std::begin(c.act), std::end(c.act), std::begin(freq));
+        comments = c.comments, category = c.category, listedOnly = c.listedOnly;
         path = p;
         status = "Editing " + name(p);
         return true;
@@ -448,15 +418,15 @@ struct Painter {
     void go(const std::vector<pf::Act>& h) {
         setSpot(h);
         for (auto& f : files) {
-            std::string spot, com, err;
-            pf::RangeFreqs tmp[3];
-            if (readRef(f, spot, tmp, com, err) && spot == letters() && load(f)) return;
+            pf::Chart c;
+            std::string err;
+            if (pf::readChart(f, c, err) && c.spot == letters() && load(f)) return;
         }
         std::error_code ec;
         if (std::filesystem::exists(path, ec)) {  // never paint over a file we couldn't read
-            std::string spot, com, err;
-            pf::RangeFreqs tmp[3];
-            readRef(path, spot, tmp, com, err);
+            pf::Chart c;
+            std::string err;
+            pf::readChart(path, c, err);
             status = name(path) + " exists but can't be used (" + err + "); fix it by hand";
             path.clear();
         } else {
@@ -470,9 +440,12 @@ struct Painter {
         std::error_code ec;
         std::filesystem::create_directories(dir, ec);
         std::ofstream out(path);
-        out << comments << "spot: " << letters() << "\n";
+        out << comments;
+        if (category != "other") out << "category: " << category << "\n";
+        out << "spot: " << letters() << "\n";
         for (int a : {2, 1})
             if (legal(a)) out << (a == 2 ? "raise: " : "call: ") << pf::formatRange(freq[a]) << "\n";
+        if (listedOnly) out << "scope: listed\n";
         status = out ? "Saved " + name(path) : "Could not write " + path;
         refresh();
     }

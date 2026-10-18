@@ -49,6 +49,7 @@ target_compile_definitions(trainer_test PRIVATE DATA_DIR="${CMAKE_SOURCE_DIR}/da
 add_test(NAME trainer_test COMMAND trainer_test)
 add_executable(range_test tests/range_test.cpp)
 target_link_libraries(range_test trainer)
+target_compile_definitions(range_test PRIVATE REF_DIR="${CMAKE_SOURCE_DIR}/ref")
 add_test(NAME range_test COMMAND range_test)
 
 add_executable(gen_equity src/tools/gen_equity.cpp)

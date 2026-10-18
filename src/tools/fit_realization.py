@@ -31,8 +31,8 @@ from scipy.optimize import minimize
 # scale), and bounds. ip is fixed by default: R only matters up to a common factor.
 FIELDS = ["ip", "oop", "flush", "conn", "set", "dom", "low", "spr", "init", "pairLow", "oopCall",
           "callerShrink", "ipCall", "domPot"]
-DEFAULT = dict(ip=1, oop=0.706, flush=0.16685, conn=0.05041, set=0.1231, dom=0.1087, low=0.039475, spr=1.525,
-               init=0.21775, pairLow=0.007124, oopCall=1.0225, callerShrink=0, ipCall=0.8345, domPot=0.033245)
+DEFAULT = dict(ip=1, oop=0.650545, flush=0.22685, conn=0.08041, set=0.2131, dom=0.0487, low=0.062154,
+               spr=0.3, init=0.304638, pairLow=0.005671, oopCall=1.3225, callerShrink=0, ipCall=0.703737, domPot=0.183245)
 STEP = dict(ip=0.05, oop=0.05, flush=0.02, conn=0.01, set=0.03, dom=0.02, low=0.01, spr=1.0, init=0.1,
             pairLow=0.01, oopCall=0.1, callerShrink=0.1, ipCall=0.2, domPot=0.05)
 BOUNDS = dict(ip=(0.5, 1.5), oop=(0.2, 1.2), flush=(-0.2, 0.6), conn=(-0.1, 0.3), set=(-0.2, 0.6),

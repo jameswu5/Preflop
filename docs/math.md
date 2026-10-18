@@ -1,6 +1,6 @@
 # The Math
 
-This page sets out the model and the method used to solve it, as implemented. Code references: `src/solver/mccfr.*` (CFR), `src/solver/utility.*` (payoffs and realization), `src/solver/equity.*` (equity), `src/tools/tune.py` (fitting), `src/trainer/trainer.*` (rollout EVs). [solver.md](solver.md) covers data layout and threading. Parameter values are not quoted here: the source of truth is the code defaults, which hold the values fitted by `tune.py` (§4).
+This page sets out the model and the method used to solve it, as implemented. Code references: `src/solver/mccfr.*` (CFR), `src/solver/utility.*` (payoffs and realization), `src/solver/equity.*` (equity), `src/tools/tune.py` (fitting), `src/trainer/trainer.*` (rollout EVs). [solver.md](solver.md) covers data layout and threading. Parameter values are not quoted here: the source of truth is the code defaults, which hold the values fitted by `bo_tune.py` (§4).
 
 In outline:
 
@@ -195,6 +195,10 @@ with $\mu$ in score per percentage point. The bands and $\mu$ are constants in `
 
 **Search.** Coordinate pattern search: from $\theta$, evaluate $\theta \pm \delta_j e_j$ for every coordinate $j$. Every coordinate whose better step beats $J(\theta)$ by more than $z$ standard errors moves, all together. If the combined point turns out worse than the best single move, it is replaced by that move. With no significant move, every $\delta_j$ halves (and $M$ may grow). The standard error of a difference uses the run-to-run spread pooled over all candidates of the round, since a couple of seeds per candidate cannot estimate their own. Every candidate is compared with the same estimate of $J(\theta)$, so a noisy one shifts them all. The winner is therefore re-scored against the start point at the end. This needs no gradients, tolerates noise reasonably well, and has few moving parts. That matters when each evaluation is a solve.
 
+**Bayesian search** (`bo_tune.py`, which sets the current defaults). Model $J$ over the whole box with a Gaussian process $J(\theta) \sim \mathcal{GP}(m, k) + \varepsilon$, with a Matérn-5/2 kernel $k$ with one length scale per coordinate and Gaussian noise $\varepsilon$ for the run-to-run spread. After $n$ evaluations the posterior gives a mean $\mu_n(\theta)$ and standard deviation $s_n(\theta)$, and the next point maximises the expected improvement over the best score observed so far, $J^*$, by a margin $\xi$,
+$$\mathrm{EI}(\theta) = \mathbb{E}\big[\max(J^* - \xi - J(\theta), 0)\big] = (J^* - \xi - \mu_n)\,\Phi(u) + s_n\,\varphi(u), \qquad u = \frac{J^* - \xi - \mu_n}{s_n},$$
+which trades a low predicted score against high uncertainty. Each evaluation is one solve with one seed: the noise term pools the spread over nearby points, so repeat seeds are unnecessary, and all coordinates move together, so interactions are modelled rather than found one coordinate at a time. The result is the evaluated point with the lowest $\mu_n$, which is then confirmed with several seeds, paired with the start point, at full $M$.
+
 **Overfitting.** There are few parameters and they are interpretable. The reference set is small, though, so treat a parameter the data barely constrains (such as $\iota$) with caution: the search will move it, but the references cannot pin it down. More references for the spots it affects matter more than further fitting.
 
 ## 5. Convergence and checks
@@ -219,6 +223,6 @@ This is self-normalized importance sampling: consistent as $N$ grows, with $O(1/
 
 1. **Equity table.** `gen_equity` writes the exact heads-up table (§3.1). It never changes.
 2. **Validate the solver on a small game.** Solve SB vs BB with rake off (a config with `rake = 0`), where CFR has its guarantee, and run the indifference check (§5).
-3. **Fit $\theta$.** Run `tune.py` against the reference charts in `ref/` (§4).
+3. **Fit $\theta$.** Run `bo_tune.py` (or `tune.py`) against the reference charts in `ref/` (§4).
 4. **Re-solve.** Copy the fitted values into the `RealizationConfig` defaults and re-run the Scratch solve, then the Anchored one, at the full board count $K$ (commands in the README and solver.md). The strategy file records the $\theta$ it was solved with, so the trainer's rollouts use the same payoff model.
 5. **Check.** Watch the strategy change (§5), run `solve --report` for the sanity metrics, and run `validate` for the per-spot distances to the references ([validation.md](validation.md#tools)).

@@ -8,7 +8,7 @@
    - Strategy sums are valid distributions, and no illegal actions have probability.
 2. **Distance metric** against reference charts, per spot:
    `sum_hand weight * |sigma_ours - sigma_ref| / sum_hand weight`, plus range width per action (open %, 3-bet %, fold %).
-3. **Tuning knobs** (few parameters to limit overfitting): R by position, role and pot depth, plus small R adjustments by hand class (suited, pair, connectedness, domination). Fit by coordinate search against the reference charts, each evaluation a full fresh solve (`tune.py`, below).
+3. **Tuning knobs** (few parameters to limit overfitting): R by position, role and pot depth, plus small R adjustments by hand class (suited, pair, connectedness, domination). Fit against the reference charts, each evaluation a full fresh solve, by Bayesian optimisation (`bo_tune.py`, below) or coordinate search (`tune.py`).
 4. **De-risk by scaling up:** parameterize the tree on seat count. Get a short-handed version working first (e.g. BTN/SB/BB, then 4-handed), then go to 6-max.
 5. **Convergence check:** measure how much the average strategy changes between checkpoints. Optionally compute best-response exploitability in a reduced game.
 

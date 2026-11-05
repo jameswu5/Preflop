@@ -36,19 +36,66 @@ Milestones 1–8 are done. Of 9, rake, calling squeezes and the multithreaded so
 8. **raylib GUI** on top of the trainer core.
 9. **Extensions:** rake, SB limping, second raise size, calling squeezes, other stack depths, multithreaded solver.
 
-## Next directions
+## Version 2: postflop-derived realization
 
-Two possible directions, not yet chosen. Charted decisions in GTO mode are graded by the charts themselves, so solver accuracy shows up only in uncharted spots (squeezes, cold 4-bets, overcalls) and in Scratch mode. Leave SB limping, a second raise size and other stack depths for later in either case: each adds tree with no reference charts to check it against.
+Version 1 tunes a hand-built realization formula against the charts. Version 2 measures realization from postflop solves instead, and uses the same postflop solver to add postflop spots to the trainer. The realization model is the accuracy ceiling, and the remaining gap looks like a missing model rather than missing tuning. Every phase is tried; each ends with a check, and the writeup is extended once a working version exists.
 
-**A. Research: improve the model.** The realization model is the accuracy ceiling, and the remaining gap looks like a missing model rather than missing tuning.
-- Derive realization instead of tuning it: solve a crude postflop abstraction (e.g. flop all-in/check, or a tiny flop tree) per pot type and read realization off the result.
-- A cheaper step: a fixed-strategy loss that re-solves the responders' ranges (e.g. the 4-bettor's) per candidate. This addresses why the fixed-strategy fit failed to transfer to full solves, and would make fitting the per-class features from `gen_features` worthwhile.
-- End state: a second writeup with the new result.
+**Everything in this repo is written from scratch in C++.** Ideas come from other projects, credited below, but no code is copied. postflop-solver may be run separately as an outside reference for timing and correctness checks; it is never vendored or linked.
 
-**B. Product: a trainer for daily use.**
-- Fix the known correctness gaps: the equity table ignores folded cards (`equity.h`), and the GUI EV assumes heads-up in multiway pots (`src/gui/main.cpp`).
+### Phase 0: heads-up postflop solver
+
+A flop-to-river solver for two players (ideas from b-inary/postflop-solver and bupticybee/TexasSolver).
+
+- Vector-form discounted CFR: each node updates the whole range against the whole range, unlike the sampled preflop MCCFR.
+- Fixed bet tree: one or two sizes per street plus all-in, set per pot type.
+- Suit isomorphism for flops, turns and rivers.
+- Showdowns evaluated in one pass per board: sort hands by strength and pay out with running sums, correcting for card removal, instead of comparing every pair.
+- Optional 16-bit regret and strategy storage to halve memory.
+- Reuses `src/solver/cards.*` and the threading pattern from `mccfr.cpp`.
+- Check: per-hand EVs agree with the outside reference within the exploitability target on a handful of spots, and speed is within a small factor of it. The timing decides how many spots and flops Phase 1 can afford.
+
+### Phase 1: measured realization table
+
+The structure follows GTOpen's fitted realization table (MatthewPDingle/GTOpen); the data and code are our own.
+
+- Spots: every heads-up flop pot the charts cover. Single-raised pots by opener and caller, 3-bet pots, and 4-bet pots, with pot and stacks from our bet sizes.
+- Ranges from the Anchored solve; flops from a weighted sample of canonical flops.
+- Per spot, role and hand class, realization = EV / (equity × pot), aggregated over the flops.
+- Covered spots are a direct lookup by (pot type, role, class). Uncharted spots (squeezes, cold 4-bets, other depths) use a small fitted model, a per-class base times a context term in position, initiative, SPR bucket and equity against the opponent's range, shrunk toward the base. Equity against range is fixed for a given spot and class, so it costs nothing at solve time.
+- `realization()` in `utility.h` becomes a table lookup. `RealizationConfig` stays as the fallback and for multiway pots. The strategy file records the table version, as it records θ now, so trainer rollouts use the same model.
+- Check: paired 300M Scratch solves over several seeds, scored against GTO as in `bo_tune.py`, against the current defaults.
+
+### Phase 2: iterate to a fixed point
+
+The table depends on the ranges and the ranges depend on the table. Loop: preflop solve, read its ranges, re-run the postflop solves, rebuild the table. Every player re-optimises inside the loop, which is what the fixed-strategy fit lacked. Stop when the table and the score stop moving. Running the loop on Scratch ranges gives a self-consistent model; on the chart ranges, an anchored one.
+
+### Phase 3: postflop spots in the trainer
+
+- A library of solved flops per spot, stored compressed. Phase 1 produces most of it.
+- After a preflop hand, deal a library flop and drill the flop decision, with optional turn and river.
+- Grading as for preflop: correct if the solve plays the action at least 10% of the time, otherwise by EV loss against the solve.
+- Scope: heads-up single-raised and 3-bet pots, the fixed bet tree, 100bb.
+
+### Heuristic track
+
+A cheaper postflop model, built alongside the solver and compared with it (ideas from dickreuter/neuron_poker, krukah/robopoker and kdub0/hand-isomorphism).
+
+- A flop hand-strength table over every (combo, canonical flop), indexed up to suit symmetry.
+- A threshold-bot rollout at each flop terminal: players bet or call when their hand strength against a range clears a threshold, act in postflop order with the last raiser first, and the hand settles at true equity. Position, initiative and SPR then come from the betting rather than from formula terms. Strength must be against a range, not the opponent's actual cards, or nobody ever folds a winner and the result collapses back to raw equity.
+- Produces a table in the Phase 1 format, so the two are compared directly.
+
+### Deferred
+
+- Multiway flop pots keep the current formula (GTOpen also leaves multiway at raw equity).
+- Dead cards in the heads-up equity table (`equity.h`); revisit after Phase 1.
+- SB limping, a second raise size and other stack depths: each adds tree with no reference charts to check it against.
+
+### End state
+
+Version 2 of the project and an extended writeup: postflop solver methodology, the measured realization table, the fixed-point iteration and the comparison with version 1.
+
+## Later: a trainer for daily use
+
+- Fix the GUI EV assuming heads-up in multiway pots (`src/gui/main.cpp`).
 - Leak tracking: per-spot error rates over time, and drills weighted toward the weakest spots.
 - Hand history and review.
-- End state: a tool used regularly to improve preflop play.
-
-Suggested order if mixing them: B's correctness fixes first, then one A route as the single deep thread, and refresh the writeup's figures at the end.

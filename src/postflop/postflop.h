@@ -9,16 +9,20 @@
 
 namespace pf::post {
 
-// Bet menu for one street. Bets are fractions of the pot; raises are multiples of the bet faced.
-// All-in is always offered.
+// Bet menu for one street. Bets are fractions of the pot; raises are multiples of the bet faced
+// (raise to mult x the opponent's chips in on this street). All-in is added per TreeConfig.
 struct StreetSizes {
     std::vector<double> bet, raise;
 };
 
+// "Pot" below is every chip in the middle at the decision, including this street's bets.
 struct TreeConfig {
     double pot = 0, stack = 0;          // bb at the flop; stack = effective stack behind
     std::array<StreetSizes, 3> sizes;   // flop, turn, river
     int maxRaises = 2;                  // per street, after the first bet
+    double addAllinBelowSpr = 1.5;      // all-in is offered when the actor's stack behind <= this x pot
+    double forceAllinSpr = 0.15;        // a bet or raise becomes all-in if stack / pot once called <= this
+    double mergeFrac = 0.1;             // from the largest down, drop a size within this x pot of a kept one
 };
 
 using ComboWeights = std::array<float, NCOMBOS>;  // indexed by comboIndex()

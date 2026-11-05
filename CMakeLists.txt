@@ -60,13 +60,13 @@ target_compile_definitions(spots_test PRIVATE REF_DIR="${CMAKE_SOURCE_DIR}/ref")
 add_test(NAME spots_test COMMAND spots_test)
 
 # Stand-in for the postflop solver (src/postflop/solve_stub.cpp) until it lands.
-add_library(postflop src/postflop/solve_stub.cpp)
-target_link_libraries(postflop PUBLIC trainer)
+add_library(postflop_stub src/postflop/solve_stub.cpp)
+target_link_libraries(postflop_stub PUBLIC trainer)
 add_executable(realization_pipeline_test tests/realization_pipeline_test.cpp)
-target_link_libraries(realization_pipeline_test postflop)
+target_link_libraries(realization_pipeline_test postflop_stub)
 add_test(NAME realization_pipeline_test COMMAND realization_pipeline_test)
 add_executable(realization_table src/tools/realization_table.cpp)
-target_link_libraries(realization_table postflop)
+target_link_libraries(realization_table postflop_stub)
 target_compile_definitions(realization_table PRIVATE DATA_DIR="${CMAKE_SOURCE_DIR}/data")
 # Runs 3 spots from scratch, then again: the rerun must find every (spot, flop) recorded.
 set(RT_OUT ${CMAKE_BINARY_DIR}/realization_table_tool.bin)

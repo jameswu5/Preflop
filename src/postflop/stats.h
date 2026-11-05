@@ -14,6 +14,6 @@ struct Stats {
 };
 
 Result solve(const Spot& spot, const Options& opt, Stats* stats);
-Stats measure(const Spot& spot);  // builds the tree only: sizes without allocating the storage
+Stats measure(const Spot& spot, const Options& opt);  // builds the tree only: sizes without allocating the storage
 
 }  // namespace pf::post

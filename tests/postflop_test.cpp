@@ -69,8 +69,10 @@ int main() {
 
     // No stack: the hand checks down, so ev is equity times the pot over every runout, which checks
     // the chance nodes, suit isomorphism (monotone flop: three interchangeable suits) and showdowns.
-    {
+    // The same on a fixed turn, whose all-in showdowns take a different path.
+    for (int turn : {-1, card("2s")}) {
         Spot s = spot("Ts9s6s", "AA,KK,AKs,T9s,76s,QJo,A5s", "QQ,JJ,KQs,98s,AJo,87s", 6, 0);
+        s.turn = turn;
         Options o;
         o.maxIters = 1, o.threads = 1;
         Result r = solve(s, o);
@@ -81,6 +83,17 @@ int main() {
                 eq += r.weight[p][c] * r.equity[p][c];
             }
         assert(std::abs(eq - 1) < 1e-5 && std::abs(total(r) - 6) < 1e-4);
+    }
+
+    // A fixed-turn game with bets: its turn all-ins pay out by sweeping each river. (The zero-stack
+    // check can't catch reach errors there, since with nothing put in they cancel.)
+    {
+        Spot s = spot("Td9d6h", "AA,KK,TT,99,AK,KQs,T9s,87s,76s,A5s", "QQ,JJ,AQ,AJs,KJs,QJs,J8s,98s,66", 5.5, 6);
+        s.turn = card("2c");
+        Options o;
+        o.maxIters = 200, o.targetExpl = 0, o.threads = 1;
+        Result r = solve(s, o);
+        assert(r.exploitability < 0.001 && std::abs(total(r) - 5.5) < 1e-3);
     }
 
     // A small flop game: exploitability falls, the ev identity holds, threads don't change the
@@ -102,6 +115,12 @@ int main() {
         o.threads = 3;
         Result r3 = solve(s, o);
         assert(r3.exploitability == r.exploitability && r3.ev == r.ev);
+
+        o.threads = 1, o.compress = true;  // 16-bit storage still converges
+        Result rc = solve(s, o);
+        std::printf("flop, 16-bit: exploitability %.5f after 200\n", rc.exploitability);
+        assert(rc.exploitability < 0.002 && std::abs(total(rc) - 5.5) < 1e-3);
+        o.compress = false;
 
         Spot t = spot("Th9h6d", oop, ip, 5.5, 6);  // d <-> h
         o.threads = 1, o.maxIters = 20;

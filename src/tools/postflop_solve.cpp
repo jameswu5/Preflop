@@ -1,11 +1,13 @@
 // Solves one heads-up postflop spot and prints size, timing, exploitability and realization by class.
 // Usage: postflop_solve [--oop file:line] [--ip file:line] [--flop Td9d6h] [--turn c] [--river c]
 //                       [--pot 5.5] [--stack 97.5] [--bet 0.5,0.66,0.66] [--raise 2.5] [--max-raises 2]
+//                       [--allin-spr 1.5] [--force-spr 0.15] [--merge 0.1]
 //                       [--iters 1000] [--target 0.01] [--threads 0] [--compress] [--measure]
 //   --oop/--ip   a range from a reference chart: file and its "raise" or "call" line
 //                (defaults: BB's call vs the BTN open, and the BTN open)
 //   --bet        bet size per street as a fraction of the pot (flop,turn,river); --raise is the
-//                multiple of the bet faced, on every street. All-in is always offered.
+//                multiple of the bet faced, on every street. All-in and merging follow the last three
+//                options (TreeConfig in postflop.h).
 //   --target     stop at this exploitability, as a fraction of the pot
 //   --measure    build the tree and print its size only
 // Realization per class = sum(w * ev) / (sum(w * equity) * pot) (postflop.h).
@@ -74,6 +76,9 @@ int main(int argc, char** argv) {
         else if (a == "--bet") bets = list(v);
         else if (a == "--raise") raise = list(v);
         else if (a == "--max-raises") spot.tree.maxRaises = std::stoi(v);
+        else if (a == "--allin-spr") spot.tree.addAllinBelowSpr = std::stod(v);
+        else if (a == "--force-spr") spot.tree.forceAllinSpr = std::stod(v);
+        else if (a == "--merge") spot.tree.mergeFrac = std::stod(v);
         else if (a == "--iters") opt.maxIters = std::stoi(v);
         else if (a == "--target") opt.targetExpl = std::stod(v);
         else if (a == "--threads") opt.threads = std::stoi(v);
@@ -86,7 +91,7 @@ int main(int argc, char** argv) {
     if (!loadRange(oop, spot.range[0]) || !loadRange(ip, spot.range[1])) return 1;
 
     if (measureOnly) {
-        Stats st = measure(spot);
+        Stats st = measure(spot, opt);
         std::printf("hands %d / %d, nodes %zu (%zu action), memory %.1f MB\n", st.hands[0], st.hands[1], st.nodes,
                     st.actionNodes, st.bytes / 1e6);
         return 0;

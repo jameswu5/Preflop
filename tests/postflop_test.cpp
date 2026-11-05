@@ -116,6 +116,12 @@ int main() {
         Result r3 = solve(s, o);
         assert(r3.exploitability == r.exploitability && r3.ev == r.ev);
 
+        o.threads = 1, o.compress = true;  // 16-bit storage still converges
+        Result rc = solve(s, o);
+        std::printf("flop, 16-bit: exploitability %.5f after 200\n", rc.exploitability);
+        assert(rc.exploitability < 0.002 && std::abs(total(rc) - 5.5) < 1e-3);
+        o.compress = false;
+
         Spot t = spot("Th9h6d", oop, ip, 5.5, 6);  // d <-> h
         o.threads = 1, o.maxIters = 20;
         r = solve(s, o);

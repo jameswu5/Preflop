@@ -11,6 +11,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <thread>
 #include <unordered_map>
@@ -31,7 +32,7 @@ struct Node {
     uint16_t nKids = 0;
     float contrib[2] = {};  // postflop chips put in
     int kids = 0;          // first child in Solver::kids_
-    int aux = 0;           // CHANCE: chance_ index; SHOWDOWN: runout_ index
+    int aux = 0;           // CHANCE: chance_ index; SHOWDOWN: runout_ index; ACTION: scale index
     size_t off = 0;        // ACTION: offset of [action][hand] in the regret and strategy-sum arenas
 };
 
@@ -116,8 +117,12 @@ public:
     }
 
     Result run() {
-        regret_.assign(arena_, 0);
-        sum_.assign(arena_, 0);
+        if (opt_.compress) {
+            reg16_.assign(arena_, 0), sum16_.assign(arena_, 0);
+            regScale_.assign(actions_, 0), sumScale_.assign(actions_, 0);
+        } else {
+            regret_.assign(arena_, 0), sum_.assign(arena_, 0);
+        }
         Result res;
         double expl = exploitability();
         int t = 0;
@@ -150,7 +155,7 @@ public:
     }
 
     void stats(Stats& st) const {
-        st.bytes = 2 * arena_ * sizeof(float) + nodes_.size() * sizeof(Node) + kids_.size() * sizeof(int);
+        st.bytes = 2 * arena_ * (opt_.compress ? 2 : sizeof(float)) + nodes_.size() * sizeof(Node) + kids_.size() * sizeof(int);
         for (const River& rv : river_) st.bytes += (rv.order[0].size() + rv.order[1].size()) * 6;
         for (const Runout& ro : runout_) st.bytes += (ro.pair[0].size() + ro.pair[1].size()) * sizeof(float);
         st.nodes = nodes_.size();
@@ -181,7 +186,12 @@ private:
     std::unordered_map<uint64_t, int> runoutId_;
     std::vector<int> board_;
     size_t arena_ = 0;
+    int actions_ = 0;
     Vec regret_, sum_;
+    // Options::compress: regrets as int16 and strategy sums as uint16, each times a per-node scale.
+    std::vector<int16_t> reg16_;
+    std::vector<uint16_t> sum16_;
+    Vec regScale_, sumScale_;
     float dpos_ = 0, dneg_ = 0, dsum_ = 0;
 
     int nh(int p) const { return int(hands_[p].size()); }
@@ -250,7 +260,7 @@ private:
         nd.contrib[0] = float(s.c[0]), nd.contrib[1] = float(s.c[1]);
         int n = add(nd), passive = facing > EPS ? 2 : 1;
         int base = reserveKids(n, passive + int(adds.size()));
-        nodes_[n].off = arena_;
+        nodes_[n].off = arena_, nodes_[n].aux = actions_++;
         arena_ += size_t(passive + adds.size()) * nh(p);
 
         int k = base;
@@ -563,9 +573,13 @@ private:
         }
 
         int na = nd.nKids, p = nd.player, np = nh(p);
-        float* reg = regret_.data() + nd.off;
-        float* sum = sum_.data() + nd.off;
-        float *s = scratch(size_t(na) * np), *tmp = scratch(np);
+        size_t len = size_t(na) * np;
+        bool z = opt_.compress, needReg = m == TRAIN, needSum = m == TRAIN ? p != tr : p != tr || m == EVAL;
+        float* reg = z ? (needReg ? scratch(len) : nullptr) : regret_.data() + nd.off;
+        float* sum = z ? (needSum ? scratch(len) : nullptr) : sum_.data() + nd.off;
+        if (z && needReg) decode(reg16_.data() + nd.off, regScale_[nd.aux], len, reg);
+        if (z && needSum) decode(sum16_.data() + nd.off, sumScale_[nd.aux], len, sum);
+        float *s = scratch(len), *tmp = scratch(np);
         if (m == TRAIN) matching(reg, na, np, s, tmp);
         else if (p != tr || m == EVAL) average(sum, na, np, s, tmp);
 
@@ -587,6 +601,7 @@ private:
                         float r = reg[a * nt + h];
                         reg[a * nt + h] = r * (r > 0 ? dpos_ : dneg_) + v[a * nt + h] - out[h];
                     }
+            if (z && m == TRAIN) regScale_[nd.aux] = encode(reg, len, reg16_.data() + nd.off);
             return;
         }
 
@@ -602,6 +617,23 @@ private:
         if (m == TRAIN)
             for (int a = 0; a < na; ++a)
                 for (int o = 0; o < no; ++o) sum[a * no + o] = sum[a * no + o] * dsum_ + reach[o] * s[a * no + o];
+        if (z && m == TRAIN) sumScale_[nd.aux] = encode(sum, len, sum16_.data() + nd.off);
+    }
+
+    template <class T>
+    static void decode(const T* q, float scale, size_t n, float* x) {
+        for (size_t i = 0; i < n; ++i) x[i] = float(q[i]) * scale;
+    }
+    // Rounds to nearest against the largest magnitude; returns the scale.
+    template <class T>
+    static float encode(const float* x, size_t n, T* q) {
+        constexpr float top = float(std::numeric_limits<T>::max());
+        float mx = 0;
+        for (size_t i = 0; i < n; ++i) mx = std::max(mx, std::abs(x[i]));
+        if (mx == 0) return std::fill(q, q + n, T(0)), 0.0f;
+        float inv = top / mx;
+        for (size_t i = 0; i < n; ++i) q[i] = T(std::rint(x[i] * inv));
+        return mx / top;
     }
 
     double norm() const {  // total weight of compatible (OOP, IP) pairs

@@ -12,6 +12,9 @@
 //   --jobs N    flops solved at once (default 1); only with --threads 1
 //   --flops N   a sample of N canonical flops (sampleFlops; default 0 = all 1755)
 //   --spots N   only the first N spots (testing)
+// Fill mode: realization_table --fill measured.bin [--strategy file] [--charts dir] [--out file] [--tau X] [--ridge X]
+//   fits the model of realization_model.h on a measured table and writes a table with every class of
+//   every heads-up flop line filled (fillRealizationTable); ranges from the strategy, as when measuring.
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -24,6 +27,7 @@
 
 #include "postflop/postflop.h"
 #include "solver/flops.h"
+#include "solver/realization_model.h"
 #include "solver/spots.h"
 
 using namespace pf;
@@ -92,7 +96,8 @@ static std::map<std::string, Sums> readRecords(const std::string& path) {
 }
 
 int main(int argc, char** argv) {
-    std::string stratPath = DATA_DIR "/strategy_anchored.bin", chartDir, out = "realization_table.bin", recPath;
+    std::string stratPath = DATA_DIR "/strategy_anchored.bin", chartDir, out = "realization_table.bin", recPath, fillPath;
+    double tau = 0.002, ridge = 0.1;
     post::Options opt;
     opt.threads = 1;
     int jobs = 1, nFlops = 0;
@@ -109,6 +114,9 @@ int main(int argc, char** argv) {
         else if (a == "--threads" && more) opt.threads = std::stoi(argv[++i]);
         else if (a == "--jobs" && more) jobs = std::stoi(argv[++i]);
         else if (a == "--flops" && more) nFlops = std::stoi(argv[++i]);
+        else if (a == "--fill" && more) fillPath = argv[++i];
+        else if (a == "--tau" && more) tau = std::stod(argv[++i]);
+        else if (a == "--ridge" && more) ridge = std::stod(argv[++i]);
         else if (a == "--spots" && more) maxSpots = std::stoul(argv[++i]);
         else return std::fprintf(stderr, "unknown argument '%s'\n", a.c_str()), 1;
     }
@@ -119,6 +127,21 @@ int main(int argc, char** argv) {
     if (!s.load(stratPath)) return std::fprintf(stderr, "cannot load strategy '%s'\n", stratPath.c_str()), 1;
     if (std::string err; !chartDir.empty() && applyCharts(s, chartDir, nullptr, &err) < 0)
         return std::fprintf(stderr, "%s: %s\n", chartDir.c_str(), err.c_str()), 1;
+
+    if (!fillPath.empty()) {
+        RealizationTable measured;
+        Equity e;
+        RealizationModel m;
+        if (std::string err; !loadRealizationTable(fillPath, measured, &err)) return std::fprintf(stderr, "%s\n", err.c_str()), 1;
+        if (!e.loadHuTable(DATA_DIR "/hu_equity.bin")) return std::fprintf(stderr, "cannot load hu_equity.bin\n"), 1;
+        RealizationTable filled = fillRealizationTable(measured, s, e, tau, ridge, &m);
+        std::printf("theta (ip raiser ip*raiser spr<2 spr2-6 eqr-0.5):");
+        for (double t : m.theta) std::printf(" %.4f", t);
+        std::printf("\n%zu measured entries, %zu lines filled\n", measured.entries.size(), filled.entries.size());
+        if (std::string err; !saveRealizationTable(out, filled, &err)) return std::fprintf(stderr, "%s\n", err.c_str()), 1;
+        std::printf("wrote %s\n", out.c_str());
+        return 0;
+    }
 
     const auto FLOPS = sampleFlops(nFlops);
     auto spots = flopSpots(s.config());

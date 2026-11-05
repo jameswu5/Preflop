@@ -173,6 +173,26 @@ where $\iota$ rewards the last aggressor. The floor keeps every $R_i$ positive, 
 
 The fitted parameters are $\theta = (\alpha_{\text{oop}}, \phi, \eta, \varsigma, \delta, \lambda, \kappa, \iota, \beta, \psi, \xi, \chi, \delta_{\text{rr}})$, with $\alpha_{\text{ip}} = 1$ fixing the scale. In code they are the `RealizationConfig` fields `oop, flush, conn, set, dom, low, spr, init, pairLow, oopCall, callerShrink, ipCall, domPot`, with `ip` = $\alpha_{\text{ip}}$. The functions `straights()` and `domination()` in `utility.h` compute the features.
 
+### 3.4 Measured realization (version 2)
+
+Version 2 replaces the formula with a table measured from postflop solves where a table entry exists (`realization_table.h`, built by the `realization_table` tool).
+
+**Coverage.** A flop terminal is covered when it is heads-up, not all-in, one to three raises deep, and no folded player put in more than their blind (`headsUpFlop()` in `utility.h`). These are the open, 3-bet and 4-bet lines, one per (pot type, last raiser, caller). Squeezes, cold calls of a 3-bet and cold 4-bets leave a folder's chips in the pot, so they are not covered. An entry also records the pot and stack at the flop, and it matches only a terminal with the same values, so a table built for other bet sizes never applies.
+
+**Measurement.** For a covered spot, both players' flop ranges are read from a preflop strategy: each combo is weighted by the probability that its own actions along the line were taken. Each flop $f$ of a sample of canonical flops, with multiplicity $m_f$ (the number of flops it stands for up to suit isomorphism), is solved postflop. The solve gives each combo $x$ a weight $w_{f,x}$ (its reach after card removal against the flop and the opponent's range, normalised per player), its equity $\mathrm{eq}_{f,x}$ against the opponent's range, and its value $\mathrm{ev}_{f,x}$ from the flop on (its pot share plus postflop chips won minus postflop chips put in). For a class $k$ and a role (last raiser or caller),
+
+$$R_k = \frac{\sum_f m_f \sum_{x \in k} w_{f,x}\, \mathrm{ev}_{f,x}}{\mathrm{pot} \cdot \sum_f m_f \sum_{x \in k} w_{f,x}\, \mathrm{eq}_{f,x}}, \qquad n_k = \sum_f m_f \sum_{x \in k} w_{f,x}.$$
+
+It is a ratio of sums over flops, not an average of per-flop ratios. On a single flop a class with little equity has a tiny denominator, so its per-flop ratio is dominated by noise; summing first weights each flop by the equity actually at stake. $n_k$ is kept with $R_k$ as the evidence behind it, for shrinkage.
+
+**Payoffs.** At a covered terminal, $R_i$ is the entry's value for player $i$'s role and class, and the shares are renormalised as before, $s_i = R_i\,\mathrm{eq}_i / \sum_j R_j\,\mathrm{eq}_j$. Everywhere else, and for a class the entry has no data for ($n_k = 0$), $R_i$ comes from the formula of §3.3. Without a table every payoff is exactly the formula's.
+
+**A known approximation.** The table's $R$ is measured against equity versus the opponent's *range* on each flop. The payoff applies it to equity versus the opponent's *actual hand*, and renormalises per matchup. The renormalised share is not linear in equity, so its average over the opponent's range is not exactly $R$ times the range equity. And a hand's realization depends on what it is up against, a dependence the table averages away.
+
+**Mixed scales.** A table $R$ is an absolute pot share per unit of equity, while the formula's $R$ is fixed only up to a common scale ($\alpha_{\text{ip}} = 1$). When one player's class falls back to the formula and the other's does not, the two are on different scales in the same pot. The fitted model of the next phase fills absent classes so that this does not happen.
+
+**Strategy files.** A strategy solved with a table stores the whole table in the file, as it stores $\theta$, so trainer rollouts use the same payoff model as the solve.
+
 ## 4. Fitting the realization parameters
 
 The parameters are chosen so the solved strategy matches reference charts, subject to sanity constraints.

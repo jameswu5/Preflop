@@ -29,6 +29,10 @@ public:
     void compute(const Holes& cards, const std::array<bool, NPOS>& live, std::mt19937& rng,
                  int boards, std::array<double, NPOS>& out) const;
 
+    // Exact heads-up equity of combo a against combo b (comboIndex()); needs loadHuTable().
+    float hu(int a, int b) const { return hu_[size_t(a) * 1326 + b]; }
+    bool hasHuTable() const { return !hu_.empty(); }
+
 private:
     std::vector<float> hu_;  // [comboIndex(a)][comboIndex(b)] = equity of a vs b
 };

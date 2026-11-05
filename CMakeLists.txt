@@ -109,6 +109,12 @@ set_tests_properties(realization_table_tool PROPERTIES FIXTURES_REQUIRED rt_clea
     PASS_REGULAR_EXPRESSION "0 recorded, 15 to solve.*wrote 3 entries")
 set_tests_properties(realization_table_resume PROPERTIES FIXTURES_REQUIRED rt_run
     PASS_REGULAR_EXPRESSION "15 recorded, 0 to solve.*wrote 3 entries")
+add_test(NAME realization_table_sizes COMMAND realization_table_stub --spots 0 --sizes-3bet "40|60,120|60|3" --max-raises 1
+    --out ${CMAKE_BINARY_DIR}/realization_table_sizes.bin)
+set_tests_properties(realization_table_sizes PROPERTIES
+    PASS_REGULAR_EXPRESSION "tree: srp=50\\|66\\|66\\|2.5 3bet=40\\|60,120\\|60\\|3 4bet=33\\|50\\|50\\|2.5 maxRaises=1")
+add_test(NAME realization_table_bad_sizes COMMAND realization_table_stub --spots 0 --sizes-4bet "33|50|2.5")
+set_tests_properties(realization_table_bad_sizes PROPERTIES WILL_FAIL TRUE)
 add_test(NAME realization_table_fill COMMAND realization_table_stub --fill ${RT_OUT} --out ${RT_OUT}.filled)
 set_tests_properties(realization_table_fill PROPERTIES FIXTURES_REQUIRED rt_run PASS_REGULAR_EXPRESSION "3 measured entries.*wrote")
 

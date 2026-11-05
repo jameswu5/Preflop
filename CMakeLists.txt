@@ -24,7 +24,7 @@ find_package(Threads REQUIRED)
 # All headless code (rules engine, cards, equity) lives in one library.
 add_library(trainer src/trainer/game.cpp src/solver/cards.cpp src/solver/equity.cpp
     src/solver/utility.cpp src/solver/strategy.cpp
-    src/solver/mccfr.cpp src/solver/range.cpp src/trainer/trainer.cpp)
+    src/solver/mccfr.cpp src/solver/range.cpp src/solver/flops.cpp src/trainer/trainer.cpp)
 target_include_directories(trainer PUBLIC src)
 target_link_libraries(trainer PUBLIC pheval)
 
@@ -51,6 +51,9 @@ add_executable(range_test tests/range_test.cpp)
 target_link_libraries(range_test trainer)
 target_compile_definitions(range_test PRIVATE REF_DIR="${CMAKE_SOURCE_DIR}/ref")
 add_test(NAME range_test COMMAND range_test)
+add_executable(flops_test tests/flops_test.cpp)
+target_link_libraries(flops_test trainer)
+add_test(NAME flops_test COMMAND flops_test)
 
 add_executable(gen_equity src/tools/gen_equity.cpp)
 target_link_libraries(gen_equity trainer Threads::Threads)

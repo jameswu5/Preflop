@@ -84,5 +84,25 @@ int main() {
         const RealizationEntry* x = findRealization(&filled, h);
         assert(x && x->flops == 0 && x->raiser == CO && x->caller == UTG && !findRealization(&measured, h));
     }
+    {  // diff: n-weighted |dR| per pot type and role, model-filled classes (n = 0) ignored
+        RealizationEntry x;
+        x.pot = PotType::ThreeBet, x.raiser = CO, x.caller = BTN, x.potBB = 20, x.stackBB = 80;
+        x.rRaiser.fill(1), x.rCaller.fill(1), x.nRaiser.fill(1), x.nCaller.fill(1);
+        x.nCaller[7] = 0, x.rCaller[7] = 5;  // filled class: never counts
+        RealizationEntry y = x;
+        y.rRaiser[0] = 1.3, y.nRaiser[0] = 3;  // w = 2, |dR| = 0.3
+        y.rCaller[7] = 9;
+        RealizationEntry other = x;  // no partner in b: ignored
+        other.potBB = 21, other.rRaiser.fill(7);
+        RealizationTable a, b;
+        a.entries = {x, other}, b.entries = {y};
+        RealizationDiff d = diffRealizationTables(a, b);
+        double wR = 168 + 2, wC = 168;  // raiser: 168 classes at w 1, AA at w 2; caller: 168 classes
+        assert(d.matched == 1);
+        assert(std::abs(d.mean[1][0] - 2 * 0.3 / wR) < 1e-6 && std::abs(d.max[1][0] - 0.3) < 1e-6);
+        assert(d.mean[1][1] == 0 && d.max[1][1] == 0 && d.weight[1][1] == wC && d.weight[0][0] == 0);
+        assert(std::abs(d.overall - 2 * 0.3 / (wR + wC)) < 1e-6);
+        assert(diffRealizationTables(a, a).overall == 0);
+    }
     std::puts("realization_model_test OK");
 }

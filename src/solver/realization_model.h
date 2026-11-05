@@ -45,4 +45,16 @@ std::array<double, NBUCKETS> classEquity(const Equity& e, const std::array<float
 RealizationTable fillRealizationTable(const RealizationTable& measured, const Strategy& s, const Equity& e,
                                       double tau = 0.002, double ridge = 0.1, RealizationModel* fitted = nullptr);
 
+// How far two tables are apart, the fixed-point iteration's convergence metric (architecture.md,
+// Phase 2). Entries match on their key (pot type, seats, pot, stack); within them every class weighs
+// w = (n_a + n_b) / 2, so model-filled values (n = 0) don't count. Per pot type and role ([pot][0] = raiser,
+// [1] = caller): the w-weighted mean and the max of |R_a - R_b| over classes with w > 0; overall: the
+// w-weighted mean over everything.
+struct RealizationDiff {
+    std::array<std::array<double, 2>, 3> mean{}, max{}, weight{};
+    double overall = 0;
+    int matched = 0;  // entries found in both tables
+};
+RealizationDiff diffRealizationTables(const RealizationTable& a, const RealizationTable& b);
+
 }  // namespace pf

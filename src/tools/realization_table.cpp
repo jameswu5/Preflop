@@ -17,6 +17,9 @@
 //   --sizes-srp / --sizes-3bet / --sizes-4bet SPEC  the postflop tree per pot type, "flop|turn|river|raise"
 //               (treeSpec; e.g. "33,75|50,100|50,100|2.5": bets in % of the pot, raises x the bet)
 //   --max-raises N  per street, after the first bet (default 2)
+// Diff mode: realization_table --diff a.bin b.bin
+//   n-weighted mean and max |dR| per pot type and role (diffRealizationTables), then the overall
+//   n-weighted mean, the fixed-point convergence metric, as the last line: "mean |dR| X".
 // Fill mode: realization_table --fill measured.bin [--strategy file] [--charts dir] [--out file] [--tau X] [--ridge X]
 //   fits the model of realization_model.h on a measured table and writes a table with every class of
 //   every heads-up flop line filled (fillRealizationTable); ranges from the strategy, as when measuring.
@@ -140,6 +143,22 @@ static bool readRecords(const std::string& path, const std::string& header, std:
 
 int main(int argc, char** argv) {
     std::string stratPath = DATA_DIR "/strategy_anchored.bin", chartDir, out = "realization_table.bin", recPath, fillPath;
+    if (argc == 4 && std::string(argv[1]) == "--diff") {
+        RealizationTable a, b;
+        std::string err;
+        if (!loadRealizationTable(argv[2], a, &err) || !loadRealizationTable(argv[3], b, &err))
+            return std::fprintf(stderr, "%s\n", err.c_str()), 1;
+        RealizationDiff d = diffRealizationTables(a, b);
+        static const char* pot[] = {"single", "3-bet", "4-bet"};
+        for (int p = 0; p < 3; ++p)
+            for (int role = 0; role < 2; ++role)
+                if (d.weight[p][role] > 0)
+                    std::printf("%-6s %-6s mean |dR| %.5f  max %.5f\n", pot[p], role ? "caller" : "raiser", d.mean[p][role],
+                                d.max[p][role]);
+        std::printf("%d entries matched (%zu and %zu)\nmean |dR| %.6f\n", d.matched, a.entries.size(), b.entries.size(),
+                    d.overall);
+        return 0;
+    }
     double tau = 0.002, ridge = 0.1;
     post::Options opt;
     opt.threads = 1;

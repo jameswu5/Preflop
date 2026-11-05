@@ -114,6 +114,19 @@ add_test(NAME realization_table_resume_mismatch COMMAND realization_table_stub -
     --out ${RT_OUT})
 set_tests_properties(realization_table_resume_mismatch PROPERTIES FIXTURES_REQUIRED rt_run
     PASS_REGULAR_EXPRESSION "made with other settings")
+# Fixed-point driver smoke run over the stub: 2 rounds of a tiny warm-started solve, then a rerun
+# that must keep every step's output.
+set(FP_OUT ${CMAKE_BINARY_DIR}/fixed_point_smoke)
+set(FP_ARGS --out ${FP_OUT} --rounds 2 --iters 200000 --threads 2 --flops 2 --warm --bin ${CMAKE_BINARY_DIR}
+    --table-tool realization_table_stub)
+add_test(NAME fixed_point_clean COMMAND ${CMAKE_COMMAND} -E rm -rf ${FP_OUT})
+add_test(NAME fixed_point_smoke COMMAND ${CMAKE_SOURCE_DIR}/src/tools/fixed_point.sh ${FP_ARGS})
+add_test(NAME fixed_point_resume COMMAND ${CMAKE_SOURCE_DIR}/src/tools/fixed_point.sh ${FP_ARGS})
+set_tests_properties(fixed_point_clean PROPERTIES FIXTURES_SETUP fp_clean)
+set_tests_properties(fixed_point_smoke PROPERTIES FIXTURES_REQUIRED fp_clean FIXTURES_SETUP fp_run
+    PASS_REGULAR_EXPRESSION "round 1 score [0-9.]+ mean\\|dR\\| 0.000000")
+set_tests_properties(fixed_point_resume PROPERTIES FIXTURES_REQUIRED fp_run
+    PASS_REGULAR_EXPRESSION "solve: kept strategy.bin.*diff: kept diff.txt")
 add_test(NAME realization_table_sizes COMMAND realization_table_stub --spots 0 --sizes-3bet "40|60,120|60|3" --max-raises 1
     --out ${CMAKE_BINARY_DIR}/realization_table_sizes.bin)
 set_tests_properties(realization_table_sizes PROPERTIES

@@ -46,7 +46,7 @@ struct Chance {
 };
 
 struct Runout {  // every completion of a board, by river_ index
-    std::vector<int> rivers, card;  // card: the river dealt, on a turn board
+    std::vector<int> rivers;
     float scale = 0;  // 1 / completions once both hands are out
     // Turn or flop board: pair[p][h * n_opp + o] = P(p's h beats o) - P(o beats h) over the
     // runouts, 0 for hands sharing a card, so a showdown is one matrix-vector product.
@@ -366,7 +366,7 @@ private:
             for (int r = t + 1; r < 52 && !(dead >> t & 1); ++r)
                 if (!(dead >> r & 1)) b5[3] = t, b5[4] = r, ro.rivers.push_back(riverFor(b5));
         for (int r = 0; r < 52 && board.size() == 4; ++r)
-            if (!(dead >> r & 1)) b5[4] = r, ro.rivers.push_back(riverFor(b5)), ro.card.push_back(r);
+            if (!(dead >> r & 1)) b5[4] = r, ro.rivers.push_back(riverFor(b5));
         if (board.size() == 3) pairTable(ro);  // a turn board: its 44 sweeps are cheaper than the product
         return ro;
     }
@@ -439,8 +439,8 @@ private:
 
     // For tr's hands on this river, out[h] += a * (reach beaten - reach beating) + b * compat. One
     // ascending pass: per group of equal strength, the reach strictly below (W) and up to and
-    // including it (WE) give beating = compat - WE. Opponent hands blocked by the board must have
-    // zero reach; tr's blocked hands are left untouched.
+    // including it (WE) give beating = compat - WE, and the pass's final sums give compat. Only
+    // the board's hands are counted; tr's blocked hands are left untouched.
     [[gnu::noinline]] void sweep(const River& rv, int tr, const float* reach, float a, float b, float* out) const {
         int op = 1 - tr;
         const uint16_t *ot = rv.order[tr].data(), *oo = rv.order[op].data();
@@ -449,10 +449,10 @@ private:
         const uint8_t *o0 = card0_[op].data(), *o1 = card1_[op].data(), *t0 = card0_[tr].data(), *t1 = card1_[tr].data();
         const int* same = same_[tr].data();
         Frame f;
-        float *compat = scratch(nh(tr)), *w = scratch(mt);
-        compatSums(tr, reach, compat);
+        float* w = scratch(mt);  // W + WE per position in ot
         float run = 0, rc[52] = {};
-        for (int i = 0, j = 0; i < mt;) {
+        int j = 0;
+        for (int i = 0; i < mt;) {
             int g = i, s = st[i];
             for (; j < mo && so[j] < s; ++j) {
                 float r = reach[oo[j]];
@@ -465,9 +465,17 @@ private:
             }
             for (; i < g; ++i) {
                 int h = ot[i];
-                float we = run - rc[t0[h]] - rc[t1[h]] + (same[h] >= 0 ? reach[same[h]] : 0);
-                out[h] += a * (w[i] + we - compat[h]) + b * compat[h];
+                w[i] += run - rc[t0[h]] - rc[t1[h]] + (same[h] >= 0 ? reach[same[h]] : 0);
             }
+        }
+        for (; j < mo; ++j) {  // finish the totals: compat comes from them
+            float r = reach[oo[j]];
+            run += r, rc[o0[oo[j]]] += r, rc[o1[oo[j]]] += r;
+        }
+        for (int i = 0; i < mt; ++i) {
+            int h = ot[i];
+            float compat = run - rc[t0[h]] - rc[t1[h]] + (same[h] >= 0 ? reach[same[h]] : 0);
+            out[h] += a * (w[i] - compat) + b * compat;
         }
     }
 
@@ -479,13 +487,8 @@ private:
             return sweep(river_[ro.rivers[0]], tr, reach, a, b, out);
         }
         if (ro.pair[tr].empty()) {  // a turn board
-            Frame f;
-            float* r = scratch(no);
             std::fill(out, out + nt, 0.0f);
-            for (size_t i = 0; i < ro.rivers.size(); ++i) {
-                dealReach(1 - tr, ro.card[i], reach, r);
-                sweep(river_[ro.rivers[i]], tr, r, a * ro.scale, b * ro.scale, out);
-            }
+            for (int id : ro.rivers) sweep(river_[id], tr, reach, a * ro.scale, b * ro.scale, out);
             return;
         }
         compatSums(tr, reach, out);
@@ -666,12 +669,9 @@ private:
         Vec num(nh(p)), compat(nh(p));
         // Per-river sweeps even where the tree uses the pair table, so tests can check one against the other.
         const Runout& ro = runout_[runoutFor(board_)];
-        Vec r(nh(1 - p));
         for (int id : ro.rivers) {
-            std::fill(r.begin(), r.end(), 0.0f);
-            for (uint16_t o : river_[id].order[1 - p]) r[o] = w_[1 - p][o];  // the board's unblocked hands
-            sweep(river_[id], p, r.data(), 0.5f, 0.5f, num.data());  // (diff + compat) / 2
-            sweep(river_[id], p, r.data(), 0, 1, compat.data());
+            sweep(river_[id], p, w_[1 - p].data(), 0.5f, 0.5f, num.data());  // (diff + compat) / 2
+            sweep(river_[id], p, w_[1 - p].data(), 0, 1, compat.data());
         }
         for (int h = 0; h < nh(p); ++h) num[h] = compat[h] > 0 ? num[h] / compat[h] : 0;
         return num;

@@ -305,7 +305,7 @@ private:
         for (int c : s.board) dead |= 1ull << c;
         Chance ch;
         ch.scale = 1.0f / float(52 - int(s.board.size()) - 4);
-        ch.parallel = s.street == 0;
+        ch.parallel = s.street == int(board_.size()) - 3;  // the first deal below the root
         std::vector<int> repOf(52, -1);
         for (int c = 0; c < 52; ++c) {
             if (dead >> c & 1) continue;

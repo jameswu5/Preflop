@@ -44,8 +44,8 @@ public:
     int nodeFor(const std::vector<Act>& history) const;  // -1 if illegal or past a terminal
     // For the player to act after `history`: per hand class, the probability that its own
     // earlier actions on this path were taken (1 where it hasn't acted yet). Call only when
-    // nodeFor(history) >= 0.
-    std::array<double, NBUCKETS> reach(const std::vector<Act>& history) const;
+    // nodeFor(history) >= 0, unless `seat` names the player: then any legal history, terminal included.
+    std::array<double, NBUCKETS> reach(const std::vector<Act>& history, int seat = -1) const;
 
     // P(Fold), P(Call), P(Raise) for a hand bucket (solver/cards.h) at a node; illegal actions are 0.
     const std::array<float, 3>& probs(int node, int bucket) const;

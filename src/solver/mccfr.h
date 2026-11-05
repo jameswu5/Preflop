@@ -22,6 +22,8 @@ class Solver {
 public:
     // `eq` must outlive the solver; load its HU table first for exact heads-up equity.
     Solver(const Config& cfg, const SolverConfig& sc, const Equity& eq, uint32_t seed);
+    Solver(const Solver&) = delete;  // terminal_ points into table_: no copies or moves
+    Solver& operator=(const Solver&) = delete;
 
     // threads > 1 splits the iterations over threads seeded from the solver's RNG. Faster, but
     // results vary run to run.

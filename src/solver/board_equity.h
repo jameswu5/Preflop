@@ -1,8 +1,8 @@
 #pragma once
 // Exact equity of every combo against a weighted range on a flop, turn or river (version 2).
 // The constructor ranks every combo on every completion of the board once; each query is then
-// one pass per completion over the combos in rank order, with running sums per card to remove
-// the opponent hands that share a card with ours.
+// two prefix passes per completion over the combos in rank order, with running sums per card to
+// remove the opponent hands that share a card with ours.
 #include <array>
 #include <cstdint>
 #include <vector>
@@ -32,8 +32,15 @@ private:
     std::array<uint16_t, NCOMBOS> lo_{}, hi_{};  // the two cards of each combo
     int runouts_ = 0;
     double perPair_ = 1;                // completions of the board disjoint from both hands
-    std::vector<uint16_t> order_;       // [runout][PER] combos by rank, ascending
-    std::vector<uint8_t> tieNext_;      // 1 where order_[i + 1] has the same rank as order_[i]
+    struct Entry {
+        uint16_t x;                     // combo
+        uint8_t a, b;                   // its cards
+    };
+    std::vector<Entry> order_;          // [runout][2][PER] combos by rank; ties ascending, then descending
+    std::vector<Entry> live_;           // combos disjoint from the board
+    std::array<bool, 52> onBoard_{};
+    int nBoard_ = 0;
+    std::vector<uint16_t> byCard_;      // per card off the board, its combos with the other 51 - n
 };
 
 }  // namespace pf

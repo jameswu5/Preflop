@@ -25,6 +25,7 @@ using ComboWeights = std::array<float, NCOMBOS>;  // indexed by comboIndex()
 
 struct Spot {
     std::array<int, 3> flop{};          // cardIndex() values
+    int turn = -1, river = -1;          // a card given means that street is already dealt; -1 = by chance
     std::array<ComboWeights, 2> range{};  // [0] = OOP (acts first), [1] = IP; preflop reach weights
     TreeConfig tree;
 };

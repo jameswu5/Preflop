@@ -11,6 +11,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <thread>
@@ -244,17 +245,22 @@ private:
         int p = s.actor, q = 1 - p;
         double rem = stack_ - s.c[p], facing = s.sc[q] - s.sc[p];
         const StreetSizes& sz = spot_.tree.sizes[s.street];
+        const TreeConfig& tc = spot_.tree;
+        double pot = pot_ + s.c[0] + s.c[1];
         std::vector<double> adds;  // chips added by each bet or raise
         if (facing <= EPS)
-            for (double f : sz.bet) adds.push_back(f * (pot_ + s.c[0] + s.c[1]));
-        else if (s.raises < spot_.tree.maxRaises)
+            for (double f : sz.bet) adds.push_back(f * pot);
+        else if (s.raises < tc.maxRaises)
             for (double m : sz.raise) adds.push_back(m * s.sc[q] - s.sc[p]);
-        if (facing <= EPS || s.raises < spot_.tree.maxRaises) adds.push_back(rem);
-        for (double& a : adds) a = std::min(a, rem);
+        if ((facing <= EPS || s.raises < tc.maxRaises) && rem <= tc.addAllinBelowSpr * pot + EPS) adds.push_back(rem);
+        for (double& a : adds)
+            if (a >= rem || rem - a <= tc.forceAllinSpr * (pot + 2 * a - facing) + EPS) a = rem;
         std::erase_if(adds, [&](double a) { return a <= facing + EPS; });
-        std::sort(adds.begin(), adds.end());
-        adds.erase(std::unique(adds.begin(), adds.end(), [](double a, double b) { return b - a < 1e-6; }),
-                   adds.end());
+        std::sort(adds.begin(), adds.end(), std::greater<>());
+        std::vector<double> kept;
+        for (double a : adds)
+            if (kept.empty() || kept.back() - a > std::max(tc.mergeFrac * pot, 1e-6)) kept.push_back(a);
+        adds.assign(kept.rbegin(), kept.rend());
 
         Node nd{ACTION, uint8_t(p)};
         nd.contrib[0] = float(s.c[0]), nd.contrib[1] = float(s.c[1]);
@@ -698,9 +704,9 @@ Result solve(const Spot& spot, const Options& opt, Stats* stats) {
 
 Result solve(const Spot& spot, const Options& opt) { return solve(spot, opt, nullptr); }
 
-Stats measure(const Spot& spot) {
+Stats measure(const Spot& spot, const Options& opt) {
     Stats st;
-    Solver(spot, boardOf(spot), Options{}).stats(st);
+    Solver(spot, boardOf(spot), opt).stats(st);
     return st;
 }
 

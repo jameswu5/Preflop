@@ -130,7 +130,8 @@ public:
         while (t < opt_.maxIters && expl > opt_.targetExpl) {
             ++t;
             double d = t - 1, a = std::pow(d, 1.5);
-            dpos_ = float(a / (a + 1)), dneg_ = 0.5f, dsum_ = float(std::pow(d / t, 2));
+            // DCFR with alpha 1.5, beta 0 and gamma 3: gamma 3 reached 1% of the pot in fewer iterations than 2.
+            dpos_ = float(a / (a + 1)), dneg_ = 0.5f, dsum_ = float(std::pow(d / t, 3));
             for (int tr = 0; tr < 2; ++tr) {
                 Vec out(nh(tr));
                 walk(root_, tr, w_[1 - tr].data(), out.data(), TRAIN);

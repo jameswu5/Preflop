@@ -32,7 +32,14 @@ add_library(trainer src/trainer/game.cpp src/solver/cards.cpp src/solver/equity.
 target_include_directories(trainer PUBLIC src)
 target_link_libraries(trainer PUBLIC pheval)
 
+# Heads-up postflop solver (version 2).
+add_library(postflop src/postflop/solve.cpp)
+target_link_libraries(postflop PUBLIC trainer Threads::Threads)
+
 enable_testing()
+add_executable(postflop_test tests/postflop_test.cpp)
+target_link_libraries(postflop_test postflop)
+add_test(NAME postflop_test COMMAND postflop_test)
 add_executable(game_test tests/game_test.cpp)
 target_link_libraries(game_test trainer)
 add_test(NAME game_test COMMAND game_test)
@@ -119,6 +126,9 @@ target_compile_definitions(gen_flop_strength PRIVATE DATA_DIR="${CMAKE_SOURCE_DI
 add_test(NAME gen_flop_strength_check COMMAND gen_flop_strength --flops 2 --threads 1)
 add_executable(dump_range src/tools/dump_range.cpp)
 target_link_libraries(dump_range trainer)
+add_executable(postflop_solve src/tools/postflop_solve.cpp)
+target_link_libraries(postflop_solve postflop)
+target_compile_definitions(postflop_solve PRIVATE REF_DIR="${CMAKE_SOURCE_DIR}/ref")
 add_executable(solve src/tools/solve.cpp)
 target_link_libraries(solve trainer)
 target_compile_definitions(solve PRIVATE DATA_DIR="${CMAKE_SOURCE_DIR}/data")

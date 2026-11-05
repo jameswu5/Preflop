@@ -19,7 +19,7 @@
 // Usage: heuristic_table [--strategy file] [--charts dir] [--out file] [--flops N] [--flop 2c7dAs]
 //                        [--spots N] [--spot RAISER-CALLER] [--jobs N] [--streets 1-3]
 //                        [--value X] [--bluff X] [--raise X] [--margin X] [--bet f,t,r] [--raise-size X]
-//   --flops N   the same canonical-flop sample as realization_table (default 0 = all 1755)
+//   --flops N   sampleCanonicalFlops(N), as realization_table (default 0 = all 1755)
 //   --flop      one flop instead (repeatable); weight 1 each
 //   --spot      only this single-raised-pot spot, e.g. BTN-BB (first match in flopSpots order)
 //   --out       write the table there (default: print it only)
@@ -240,17 +240,6 @@ private:
     }
 };
 
-// realization_table's sample: every k-th canonical flop, weighted by its count.
-// ponytail: duplicated from realization_table.cpp (static there); move both to flops.h if a third user appears.
-static std::vector<std::pair<std::array<int, 3>, double>> sampleFlops(int n) {
-    const auto& all = canonicalFlops();
-    size_t step = n > 0 ? std::max<size_t>(1, all.size() / n) : 1;
-    std::vector<std::pair<std::array<int, 3>, double>> out;
-    for (size_t i = 0; i < all.size() && (n <= 0 || int(out.size()) < n); i += step)
-        out.push_back({all[i].cards, double(all[i].count)});
-    return out;
-}
-
 // --self-check: (1) a bot that never bets realizes exactly its equity, on one street and on three;
 // (2) on the flop alone, every combo's ev matches a hand-by-hand replay of each pair of holdings,
 // which narrows the ranges along the pair's own line and settles at the pair's exact equity.
@@ -405,7 +394,8 @@ int main(int argc, char** argv) {
     if (!s.load(stratPath)) return std::fprintf(stderr, "cannot load strategy '%s'\n", stratPath.c_str()), 1;
     if (std::string err; !chartDir.empty() && applyCharts(s, chartDir, nullptr, &err) < 0)
         return std::fprintf(stderr, "%s: %s\n", chartDir.c_str(), err.c_str()), 1;
-    if (flops.empty()) flops = sampleFlops(nFlops);
+    if (flops.empty())
+        for (const CanonFlop& f : sampleCanonicalFlops(nFlops)) flops.push_back({f.cards, double(f.count)});
 
     auto spots = flopSpots(s.config());
     if (!spotName.empty()) {

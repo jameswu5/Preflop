@@ -18,6 +18,11 @@ struct CanonFlop {
 // The 1755 canonical flops, ordered by their cards.
 const std::vector<CanonFlop>& canonicalFlops();
 
+// A sample of n canonical flops: every k-th of the list, k = 1755 / n rounded down; all of them for
+// n <= 0. Weight each by its count.
+// ponytail: a systematic sample over the card-ordered list; a stratified sample if budgets stay tight.
+std::vector<CanonFlop> sampleCanonicalFlops(int n);
+
 // Canonical flop of any three distinct cards (any order), and a suit relabeling `perm` that maps
 // them onto it. Apply `perm` to hands with permuteCombo() to read them in the canonical frame.
 struct FlopClass {

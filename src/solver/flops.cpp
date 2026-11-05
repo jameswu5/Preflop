@@ -56,6 +56,14 @@ const Flops& flops() {
 
 const std::vector<CanonFlop>& canonicalFlops() { return flops().canon; }
 
+std::vector<CanonFlop> sampleCanonicalFlops(int n) {
+    const auto& all = canonicalFlops();
+    size_t step = n > 0 ? std::max<size_t>(1, all.size() / n) : 1;
+    std::vector<CanonFlop> out;
+    for (size_t i = 0; i < all.size() && (n <= 0 || int(out.size()) < n); i += step) out.push_back(all[i]);
+    return out;
+}
+
 FlopClass canonicalFlop(int a, int b, int c) {
     int t[3] = {a, b, c};
     std::sort(t, t + 3);

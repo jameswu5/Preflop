@@ -45,6 +45,11 @@ int main() {
     assert(canon[canonicalFlop(ci(11, 0), ci(5, 0), ci(0, 0)).canon].count == 4);
     assert(canon[canonicalFlop(ci(11, 0), ci(5, 1), ci(0, 2)).canon].count == 24);
 
+    // The sample: every k-th flop, all of them for n <= 0.
+    assert(sampleCanonicalFlops(0).size() == 1755 && sampleCanonicalFlops(50).size() == 50);
+    auto s50 = sampleCanonicalFlops(50);
+    assert(s50[0].cards == canon[0].cards && s50[1].cards == canon[1755 / 50].cards);
+
     // Combo decoding and relabeling.
     for (int x = 0; x < NCOMBOS; ++x) {
         auto [a, b] = comboCards(x);

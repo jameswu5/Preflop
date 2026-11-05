@@ -59,6 +59,26 @@ target_link_libraries(spots_test trainer)
 target_compile_definitions(spots_test PRIVATE REF_DIR="${CMAKE_SOURCE_DIR}/ref")
 add_test(NAME spots_test COMMAND spots_test)
 
+# Stand-in for the postflop solver (src/postflop/solve_stub.cpp) until it lands.
+add_library(postflop src/postflop/solve_stub.cpp)
+target_link_libraries(postflop PUBLIC trainer)
+add_executable(realization_pipeline_test tests/realization_pipeline_test.cpp)
+target_link_libraries(realization_pipeline_test postflop)
+add_test(NAME realization_pipeline_test COMMAND realization_pipeline_test)
+add_executable(realization_table src/tools/realization_table.cpp)
+target_link_libraries(realization_table postflop)
+target_compile_definitions(realization_table PRIVATE DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+# Runs 3 spots from scratch, then again: the rerun must find every (spot, flop) recorded.
+set(RT_OUT ${CMAKE_BINARY_DIR}/realization_table_tool.bin)
+add_test(NAME realization_table_clean COMMAND ${CMAKE_COMMAND} -E rm -f ${RT_OUT} ${RT_OUT}.records)
+add_test(NAME realization_table_tool COMMAND realization_table --spots 3 --jobs 2 --out ${RT_OUT})
+add_test(NAME realization_table_resume COMMAND realization_table --spots 3 --out ${RT_OUT})
+set_tests_properties(realization_table_clean PROPERTIES FIXTURES_SETUP rt_clean)
+set_tests_properties(realization_table_tool PROPERTIES FIXTURES_REQUIRED rt_clean FIXTURES_SETUP rt_run
+    PASS_REGULAR_EXPRESSION "0 recorded, 15 to solve.*wrote 3 entries")
+set_tests_properties(realization_table_resume PROPERTIES FIXTURES_REQUIRED rt_run
+    PASS_REGULAR_EXPRESSION "15 recorded, 0 to solve.*wrote 3 entries")
+
 add_executable(gen_equity src/tools/gen_equity.cpp)
 target_link_libraries(gen_equity trainer Threads::Threads)
 target_compile_definitions(gen_equity PRIVATE DATA_DIR="${CMAKE_SOURCE_DIR}/data")

@@ -59,10 +59,10 @@ int Strategy::nodeFor(const std::vector<Act>& history) const {
     return n;
 }
 
-std::array<double, NBUCKETS> Strategy::reach(const std::vector<Act>& history) const {
+std::array<double, NBUCKETS> Strategy::reach(const std::vector<Act>& history, int seat) const {
     std::array<double, NBUCKETS> r;
     r.fill(1);
-    int who = actor(nodeFor(history));
+    int who = seat >= 0 ? seat : actor(nodeFor(history));
     for (int i = 0, m = root(); i < int(history.size()); m = child(m, history[i++]))
         if (actor(m) == who)
             for (int b = 0; b < NBUCKETS; ++b) r[b] *= probs(m, b)[int(history[i])];

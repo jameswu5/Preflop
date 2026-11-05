@@ -28,11 +28,19 @@ add_library(trainer src/trainer/game.cpp src/solver/cards.cpp src/solver/equity.
     src/solver/realization_table.cpp
     src/solver/spots.cpp
     src/solver/realization_model.cpp
-    src/solver/flops.cpp)
+    src/solver/flops.cpp
+    src/solver/board_equity.cpp)
 target_include_directories(trainer PUBLIC src)
 target_link_libraries(trainer PUBLIC pheval)
 
+# Heads-up postflop solver (version 2).
+add_library(postflop src/postflop/solve.cpp)
+target_link_libraries(postflop PUBLIC trainer Threads::Threads)
+
 enable_testing()
+add_executable(postflop_test tests/postflop_test.cpp)
+target_link_libraries(postflop_test postflop)
+add_test(NAME postflop_test COMMAND postflop_test)
 add_executable(game_test tests/game_test.cpp)
 target_link_libraries(game_test trainer)
 add_test(NAME game_test COMMAND game_test)
@@ -73,27 +81,35 @@ add_test(NAME realization_model_test COMMAND realization_model_test)
 add_executable(flops_test tests/flops_test.cpp)
 target_link_libraries(flops_test trainer)
 add_test(NAME flops_test COMMAND flops_test)
+add_executable(board_equity_test tests/board_equity_test.cpp)
+target_link_libraries(board_equity_test trainer)
+add_test(NAME board_equity_test COMMAND board_equity_test)
 
-# Stand-in for the postflop solver (src/postflop/solve_stub.cpp) until it lands.
+# Stand-in for the postflop solver (src/postflop/solve_stub.cpp): ev = equity * pot, so R = 1 exactly.
+# Keeps the pipeline test fast and exact; the tool links the real solver.
 add_library(postflop_stub src/postflop/solve_stub.cpp)
 target_link_libraries(postflop_stub PUBLIC trainer)
 add_executable(realization_pipeline_test tests/realization_pipeline_test.cpp)
 target_link_libraries(realization_pipeline_test postflop_stub)
 add_test(NAME realization_pipeline_test COMMAND realization_pipeline_test)
 add_executable(realization_table src/tools/realization_table.cpp)
-target_link_libraries(realization_table postflop_stub)
+target_link_libraries(realization_table postflop)
 target_compile_definitions(realization_table PRIVATE DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+# The same tool over the stub, for the tests: real solves are far too heavy for CTest.
+add_executable(realization_table_stub src/tools/realization_table.cpp)
+target_link_libraries(realization_table_stub postflop_stub)
+target_compile_definitions(realization_table_stub PRIVATE DATA_DIR="${CMAKE_SOURCE_DIR}/data")
 # Runs 3 spots from scratch, then again: the rerun must find every (spot, flop) recorded.
 set(RT_OUT ${CMAKE_BINARY_DIR}/realization_table_tool.bin)
 add_test(NAME realization_table_clean COMMAND ${CMAKE_COMMAND} -E rm -f ${RT_OUT} ${RT_OUT}.records)
-add_test(NAME realization_table_tool COMMAND realization_table --spots 3 --flops 5 --jobs 2 --out ${RT_OUT})
-add_test(NAME realization_table_resume COMMAND realization_table --spots 3 --flops 5 --out ${RT_OUT})
+add_test(NAME realization_table_tool COMMAND realization_table_stub --spots 3 --flops 5 --jobs 2 --out ${RT_OUT})
+add_test(NAME realization_table_resume COMMAND realization_table_stub --spots 3 --flops 5 --out ${RT_OUT})
 set_tests_properties(realization_table_clean PROPERTIES FIXTURES_SETUP rt_clean)
 set_tests_properties(realization_table_tool PROPERTIES FIXTURES_REQUIRED rt_clean FIXTURES_SETUP rt_run
     PASS_REGULAR_EXPRESSION "0 recorded, 15 to solve.*wrote 3 entries")
 set_tests_properties(realization_table_resume PROPERTIES FIXTURES_REQUIRED rt_run
     PASS_REGULAR_EXPRESSION "15 recorded, 0 to solve.*wrote 3 entries")
-add_test(NAME realization_table_fill COMMAND realization_table --fill ${RT_OUT} --out ${RT_OUT}.filled)
+add_test(NAME realization_table_fill COMMAND realization_table_stub --fill ${RT_OUT} --out ${RT_OUT}.filled)
 set_tests_properties(realization_table_fill PROPERTIES FIXTURES_REQUIRED rt_run PASS_REGULAR_EXPRESSION "3 measured entries.*wrote")
 
 add_executable(gen_equity src/tools/gen_equity.cpp)
@@ -116,8 +132,15 @@ add_test(NAME gen_features_check COMMAND gen_features --samples 20000 --out ${CM
 add_executable(pushfold_trace src/tools/pushfold_trace.cpp)
 target_link_libraries(pushfold_trace trainer Threads::Threads)
 target_compile_definitions(pushfold_trace PRIVATE DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+add_executable(gen_flop_strength src/tools/gen_flop_strength.cpp)
+target_link_libraries(gen_flop_strength trainer Threads::Threads)
+target_compile_definitions(gen_flop_strength PRIVATE DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+add_test(NAME gen_flop_strength_check COMMAND gen_flop_strength --flops 2 --threads 1)
 add_executable(dump_range src/tools/dump_range.cpp)
 target_link_libraries(dump_range trainer)
+add_executable(postflop_solve src/tools/postflop_solve.cpp)
+target_link_libraries(postflop_solve postflop)
+target_compile_definitions(postflop_solve PRIVATE REF_DIR="${CMAKE_SOURCE_DIR}/ref")
 add_executable(solve src/tools/solve.cpp)
 target_link_libraries(solve trainer)
 target_compile_definitions(solve PRIVATE DATA_DIR="${CMAKE_SOURCE_DIR}/data")

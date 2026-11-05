@@ -55,12 +55,12 @@ bool allIn(const Hand& h) {
     return false;
 }
 
-bool headsUpFlop(const Hand& h, PotType& pot, Pos& raiser, Pos& caller) {
+bool headsUpFlop(const Hand& h, PotType& pot, Pos& raiser, Pos& caller, bool dead) {
     const Config& cfg = h.config();
     int live = 0, other = -1;
     for (int p = 0; p < NPOS; ++p) {
         if (!h.folded(p)) ++live, other = p != h.lastRaiser() ? p : other;
-        else if (h.committed(p) != (p == SB ? cfg.sb : p == BB ? cfg.bb : 0)) return false;  // dead money
+        else if (!dead && h.committed(p) != (p == SB ? cfg.sb : p == BB ? cfg.bb : 0)) return false;  // dead money
     }
     if (live != 2 || pf::allIn(h) || h.raises() < 1 || h.raises() > 3) return false;
     pot = PotType(h.raises() - 1), raiser = Pos(h.lastRaiser()), caller = Pos(other);
@@ -70,7 +70,7 @@ bool headsUpFlop(const Hand& h, PotType& pot, Pos& raiser, Pos& caller) {
 const RealizationEntry* findRealization(const RealizationTable* t, const Hand& h) {
     PotType pot;
     Pos raiser, caller;
-    if (!t || !headsUpFlop(h, pot, raiser, caller)) return nullptr;
+    if (!t || !headsUpFlop(h, pot, raiser, caller, true)) return nullptr;
     for (const RealizationEntry& e : t->entries)
         if (e.pot == pot && e.raiser == raiser && e.caller == caller && std::abs(e.potBB - h.pot()) < 1e-9 &&
             std::abs(e.stackBB - h.stack(caller)) < 1e-9)

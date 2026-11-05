@@ -21,11 +21,11 @@ struct FlopSpot {
     Pos ip() const { return oop() == raiser ? caller : raiser; }
 };
 
-// Every headsUpFlop() terminal of the tree: the open, 3-bet and 4-bet lines, one per
+// Every headsUpFlop(dead) terminal of the tree. Without `dead`: the open, 3-bet and 4-bet lines, one per
 // (pot type, raiser, caller).
-// Squeezes, cold calls of a 3-bet and cold 4-bets leave a folder's chips in the pot, so they are not
-// listed; realization() falls back to the formula there. Ordered by pot type, then history.
-std::vector<FlopSpot> flopSpots(const Config& cfg);
+// Squeezes, cold calls of a 3-bet and cold 4-bets leave a folder's chips in the pot, so they are
+// listed only with `dead`. Ordered by pot type, then history.
+std::vector<FlopSpot> flopSpots(const Config& cfg, bool dead = false);
 
 // `seat`'s range at the end of `history`: per combo, the probability that its own actions along the
 // line were taken (Strategy::reach). For chart ranges, applyCharts() the strategy first.

@@ -65,12 +65,14 @@ double rake(const Hand& h);
 // All-in called: done() with every live player at currentBet() == stack.
 bool allIn(const Hand& h);
 
-// A heads-up flop that is not all-in, 1-3 raises deep, with no dead money beyond the blinds: the open,
-// 3-bet and 4-bet lines that measured realization covers (flopSpots, realization tables). Sets the
-// pot type, the last raiser and the other live player.
-bool headsUpFlop(const Hand& h, PotType& pot, Pos& raiser, Pos& caller);
-// The entry of `t` for a done() Hand: headsUpFlop() with the same pot type, seats, pot and stack. nullptr
-// if `t` is null or has none (multiway, all-in, squeeze, other bet sizes): realization() applies there.
+// A heads-up flop that is not all-in and 1-3 raises deep. Unless `dead`, also with no dead money beyond
+// the blinds: the open, 3-bet and 4-bet lines that postflop solves measure (flopSpots). With `dead`,
+// squeezes, cold calls of a 3-bet and cold 4-bets too, which a filled table (realization_model.h)
+// predicts. Sets the pot type, the last raiser and the other live player.
+bool headsUpFlop(const Hand& h, PotType& pot, Pos& raiser, Pos& caller, bool dead = false);
+// The entry of `t` for a done() Hand: headsUpFlop(dead = true) with the same pot type, seats, pot and
+// stack. nullptr if `t` is null or has none (multiway, all-in, other bet sizes, or a line the table
+// doesn't list): realization() applies there.
 const RealizationEntry* findRealization(const RealizationTable* t, const Hand& h);
 
 // Everything payoffs() needs from a done() Hand except the cards; fixed by the betting history, so

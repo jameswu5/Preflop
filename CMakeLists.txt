@@ -27,6 +27,7 @@ add_library(trainer src/trainer/game.cpp src/solver/cards.cpp src/solver/equity.
     src/solver/mccfr.cpp src/solver/range.cpp src/trainer/trainer.cpp
     src/solver/realization_table.cpp
     src/solver/spots.cpp
+    src/solver/realization_model.cpp
     src/solver/flops.cpp)
 target_include_directories(trainer PUBLIC src)
 target_link_libraries(trainer PUBLIC pheval)
@@ -65,6 +66,10 @@ add_executable(realization_payoff_test tests/realization_payoff_test.cpp)
 target_link_libraries(realization_payoff_test trainer)
 target_compile_definitions(realization_payoff_test PRIVATE DATA_DIR="${CMAKE_SOURCE_DIR}/data")
 add_test(NAME realization_payoff_test COMMAND realization_payoff_test)
+add_executable(realization_model_test tests/realization_model_test.cpp)
+target_link_libraries(realization_model_test trainer)
+target_compile_definitions(realization_model_test PRIVATE DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+add_test(NAME realization_model_test COMMAND realization_model_test)
 add_executable(flops_test tests/flops_test.cpp)
 target_link_libraries(flops_test trainer)
 add_test(NAME flops_test COMMAND flops_test)
@@ -88,6 +93,8 @@ set_tests_properties(realization_table_tool PROPERTIES FIXTURES_REQUIRED rt_clea
     PASS_REGULAR_EXPRESSION "0 recorded, 15 to solve.*wrote 3 entries")
 set_tests_properties(realization_table_resume PROPERTIES FIXTURES_REQUIRED rt_run
     PASS_REGULAR_EXPRESSION "15 recorded, 0 to solve.*wrote 3 entries")
+add_test(NAME realization_table_fill COMMAND realization_table --fill ${RT_OUT} --out ${RT_OUT}.filled)
+set_tests_properties(realization_table_fill PROPERTIES FIXTURES_REQUIRED rt_run PASS_REGULAR_EXPRESSION "3 measured entries.*wrote")
 
 add_executable(gen_equity src/tools/gen_equity.cpp)
 target_link_libraries(gen_equity trainer Threads::Threads)

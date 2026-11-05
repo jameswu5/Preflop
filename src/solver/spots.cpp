@@ -5,28 +5,28 @@
 
 namespace pf {
 
-static void walk(const Hand& h, std::vector<Act>& hist, std::vector<FlopSpot>& out) {
+static void walk(const Hand& h, std::vector<Act>& hist, std::vector<FlopSpot>& out, bool dead) {
     if (!h.done()) {
         for (Act a : h.legal()) {
             Hand c = h;
             c.apply(a);
             hist.push_back(a);
-            walk(c, hist, out);
+            walk(c, hist, out, dead);
             hist.pop_back();
         }
         return;
     }
     FlopSpot s;
-    if (!headsUpFlop(h, s.pot, s.raiser, s.caller)) return;
+    if (!headsUpFlop(h, s.pot, s.raiser, s.caller, dead)) return;
     s.history = hist, s.potBB = h.pot(), s.stackBB = h.stack(s.caller);
     out.push_back(s);
 }
 
-std::vector<FlopSpot> flopSpots(const Config& cfg) {
+std::vector<FlopSpot> flopSpots(const Config& cfg, bool dead) {
     std::mt19937 rng(0);  // cards don't affect the betting
     std::vector<FlopSpot> out;
     std::vector<Act> hist;
-    walk(Hand(rng, cfg), hist, out);
+    walk(Hand(rng, cfg), hist, out, dead);
     std::stable_sort(out.begin(), out.end(), [](auto& a, auto& b) { return a.pot < b.pot; });
     return out;
 }

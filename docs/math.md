@@ -193,6 +193,32 @@ It is a ratio of sums over flops, not an average of per-flop ratios. On a single
 
 **Strategy files.** A strategy solved with a table stores the whole table in the file, as it stores $\theta$, so trainer rollouts use the same payoff model as the solve.
 
+### 3.5 Heuristic realization (version 2)
+
+The `heuristic_table` tool builds the same table as §3.4 with the postflop solve replaced by a fixed threshold-bot rollout. It is a cheaper postflop model, built to be compared with the solver-built table entry by entry.
+
+**Strength against a range.** A player's strength at a decision is the equity of their combo against the opponent's range *as narrowed by the opponent's actions so far*, exact over the remaining cards (`BoardEquity`). It is never measured against the opponent's actual cards. If it were, nobody would fold a winning hand, and every hand would collapse back to its raw equity.
+
+**The rules.** Players act in postflop order. With $e$ the actor's equity and value, bluff and raise thresholds $v$, $b$ and $\rho$:
+
+- *No bet faced:* bet when $e \ge v$ or $e \le b$, otherwise check. The out-of-position player bets only with the initiative or when nobody holds it, and otherwise checks to the aggressor. The initiative starts with the preflop raiser, passes to whoever bets or raises, and is cleared when a street checks through.
+- *Facing a bet:* raise when $e \ge \rho$ (one raise per street). Otherwise call when $e \ge c / (P + c) + \mu$, where $c$ is the amount to call, $P$ the pot including the bet and $\mu$ a margin, and fold otherwise. Facing a raise: call or fold by the same test.
+- Bets are a fixed fraction of the pot per street and raises a fixed multiple of the bet, both capped at the stack. The sizes match the solver path's tree.
+- The hand settles at the true equity of the two holdings over the remaining cards. That happens after the last street played (one to three streets), or as soon as a player is all in.
+
+**Exact, factorised settlement.** The rules are deterministic, and they read only a player's own combo and the public history. So whether a combo reaches a node depends on that combo alone, and the pairs reaching a node are a product $X_T \times Y_T$ of one set per player. Each node therefore needs one range-against-range pass per player rather than a sum over pairs:
+
+- The actor's decision at a node partitions their range by action, and each part becomes the actor's range in the corresponding child.
+- At a fold, combo $x$ of player $p$ collects its payoff times the opponent's reach weight disjoint from $x$.
+- At a showdown, $x$ collects $\sum_y w_y\, \mathrm{eq}(x, y) \cdot \text{pot} - c_p \sum_y w_y$, where $c_p$ is $p$'s postflop investment.
+
+Turn and river cards are enumerated. Combos holding the dealt card drop out of both ranges, and each pair of hands is weighted by one over the number of cards left to it. No hands are sampled, so a flop's result has no Monte Carlo noise.
+
+**Aggregation.** From the rollout, each combo's ev, equity and weight are defined exactly as for a solve. Aggregation over flops then uses the same ratio of sums, the same flop sample and multiplicities, and the same code (`RealizationAccum`), so the two tables differ only in the postflop model. Two checks anchor it:
+
+- A bot that never bets realizes exactly its equity, $R = 1$ for every class.
+- On a single street, every combo's ev matches a replay of each pair of holdings through its own line.
+
 ## 4. Fitting the realization parameters
 
 The parameters are chosen so the solved strategy matches reference charts, subject to sanity constraints.

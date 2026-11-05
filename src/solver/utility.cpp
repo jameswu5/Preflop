@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 
 namespace pf {
 
@@ -54,7 +55,31 @@ bool allIn(const Hand& h) {
     return false;
 }
 
-Terminal::Terminal(const Hand& h) : lastRaiser(h.lastRaiser()), allIn(pf::allIn(h)), reraised(h.raises() >= 2) {
+bool headsUpFlop(const Hand& h, PotType& pot, Pos& raiser, Pos& caller) {
+    const Config& cfg = h.config();
+    int live = 0, other = -1;
+    for (int p = 0; p < NPOS; ++p) {
+        if (!h.folded(p)) ++live, other = p != h.lastRaiser() ? p : other;
+        else if (h.committed(p) != (p == SB ? cfg.sb : p == BB ? cfg.bb : 0)) return false;  // dead money
+    }
+    if (live != 2 || pf::allIn(h) || h.raises() < 1 || h.raises() > 3) return false;
+    pot = PotType(h.raises() - 1), raiser = Pos(h.lastRaiser()), caller = Pos(other);
+    return true;
+}
+
+const RealizationEntry* findRealization(const RealizationTable* t, const Hand& h) {
+    PotType pot;
+    Pos raiser, caller;
+    if (!t || !headsUpFlop(h, pot, raiser, caller)) return nullptr;
+    for (const RealizationEntry& e : t->entries)
+        if (e.pot == pot && e.raiser == raiser && e.caller == caller && std::abs(e.potBB - h.pot()) < 1e-9 &&
+            std::abs(e.stackBB - h.stack(caller)) < 1e-9)
+            return &e;
+    return nullptr;
+}
+
+Terminal::Terminal(const Hand& h, const RealizationTable* t)
+    : lastRaiser(h.lastRaiser()), allIn(pf::allIn(h)), reraised(h.raises() >= 2), table(findRealization(t, h)) {
     assert(h.done());
     for (int p : {SB, BB, UTG, HJ, CO, BTN})  // postflop order: SB first, BTN last
         if (!h.folded(p)) live |= 1 << p, last = p;
@@ -71,9 +96,16 @@ std::array<double, NPOS> payoffs(const Terminal& t, const Holes& cards, const st
     } else {
         double sum = 0;
         for (int p = 0; p < NPOS; ++p)
-            if (t.live >> p & 1)
-                sum += share[p] = eq[p] * (t.allIn ? 1 : realization(rc, p == t.last, p == t.lastRaiser, t.spr,
-                                                                     cards[p][0], cards[p][1], t.reraised));
+            if (t.live >> p & 1) {
+                double r = t.allIn ? 1 : 0;
+                if (t.table) {
+                    auto& rs = p == t.lastRaiser ? t.table->rRaiser : t.table->rCaller;
+                    r = rs[bucket(cards[p][0], cards[p][1])];
+                }
+                if (!(r > 0))  // no table, or a class it never saw
+                    r = realization(rc, p == t.last, p == t.lastRaiser, t.spr, cards[p][0], cards[p][1], t.reraised);
+                sum += share[p] = eq[p] * r;
+            }
         assert(sum > 0);
         for (double& s : share) s /= sum;
     }
@@ -83,17 +115,17 @@ std::array<double, NPOS> payoffs(const Terminal& t, const Holes& cards, const st
 }
 
 std::array<double, NPOS> payoffs(const Hand& h, const std::array<double, NPOS>& eq,
-                                 const RealizationConfig& rc) {
-    return payoffs(Terminal(h), h.cards, eq, rc);
+                                 const RealizationConfig& rc, const RealizationTable* table) {
+    return payoffs(Terminal(h, table), h.cards, eq, rc);
 }
 
 std::array<double, NPOS> utility(const Hand& h, const Equity& e, std::mt19937& rng,
-                                 int flopBoards, const RealizationConfig& rc) {
+                                 int flopBoards, const RealizationConfig& rc, const RealizationTable* table) {
     auto live = liveSeats(h);
     std::array<double, NPOS> eq{};
     if (std::count(live.begin(), live.end(), true) > 1)
         e.compute(h.cards, live, rng, allIn(h) ? 1 : flopBoards, eq);
-    return payoffs(h, eq, rc);
+    return payoffs(h, eq, rc, table);
 }
 
 }  // namespace pf

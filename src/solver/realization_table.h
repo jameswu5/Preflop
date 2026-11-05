@@ -4,6 +4,7 @@
 // Owned by the realization-table branch; the format here is the contract.
 #include <array>
 #include <cstdint>
+#include <iosfwd>
 #include <string>
 #include <vector>
 
@@ -32,5 +33,9 @@ struct RealizationTable {
 
 bool saveRealizationTable(const std::string& path, const RealizationTable& t, std::string* err = nullptr);
 bool loadRealizationTable(const std::string& path, RealizationTable& t, std::string* err = nullptr);
+// The same format inside another file (strategy files embed the table). load reads exactly one table
+// and leaves the stream after it; t is unchanged on failure.
+bool saveRealizationTable(std::ostream& out, const RealizationTable& t);
+bool loadRealizationTable(std::istream& in, RealizationTable& t, std::string* err = nullptr);
 
 }  // namespace pf

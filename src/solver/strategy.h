@@ -36,6 +36,10 @@ public:
     const Config& config() const { return cfg_; }  // build Hands with this so the tree matches
     // The payoff model the strategy was solved with; use it for rollouts so EVs match the solve.
     const RealizationConfig& realization() const { return rc_; }
+    // The measured realization table it was solved with (Solver::setRealizationTable), nullptr if none.
+    // Pass it to utility()/payoffs() with realization().
+    const RealizationTable* realizationTable() const { return table_.entries.empty() ? nullptr : &table_; }
+    void setRealizationTable(const RealizationTable& t) { table_ = t; }
     const Tree& tree() const { return tree_; }
 
     int root() const { return 0; }
@@ -54,6 +58,7 @@ public:
 private:
     Config cfg_;
     RealizationConfig rc_;
+    RealizationTable table_;
     Tree tree_;
     std::vector<std::array<float, 3>> p_;  // [node * 169 + bucket]
 };

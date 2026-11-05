@@ -1,6 +1,6 @@
 // Runs MCCFR and writes the average strategy.
 // Usage: solve [--seats 2|3|6] [--config file] [--iters N] [--chunk N] [--seed S] [--threads N] [--boards K]
-//              [--checkpoint file] [--out file] [--show FFFFR]...
+//              [--checkpoint file] [--out file] [--realization-table file] [--show FFFFR]...
 //   --seats      players left after forced folds at the root (2 = SB vs BB, 3 = BTN/SB/BB)
 //   --checkpoint resumed if it exists, rewritten after every chunk
 //   --warm       start from this checkpoint but never write it (read-only warm start, e.g. tune.py)
@@ -14,6 +14,8 @@
 //   --reset-average  after resuming, restart the strategy average (regrets kept): warm start
 //   --memory B   with --reset-average: old regrets fade as B / (B + discount blocks since); default 0.
 //                With --reset-average, --iters counts the new iterations after the restart.
+//   --realization-table file  heads-up flop terminals it covers take R from it (realization_table.h); stored
+//                in the strategy file. Not in the checkpoint: pass it again when resuming.
 //   --lock dir   play the charts in dir (validation.md format) as fixed strategies and solve the rest
 //                as a best response to them; the output keeps the chart probabilities. Not stored in
 //                the checkpoint: pass it again when resuming. Prints the --top N (default 10) charted
@@ -210,7 +212,7 @@ int main(int argc, char** argv) {
     int seats = 6, threads = 1, boards = SolverConfig{}.flopBoards;
     long iters = 1000000, chunk = 0;
     uint32_t seed = 1;
-    std::string cfgPath, ckPath, warmPath, lockDir, outPath = "strategy.bin", table = DATA_DIR "/hu_equity.bin";
+    std::string cfgPath, ckPath, warmPath, lockDir, rtPath, outPath = "strategy.bin", table = DATA_DIR "/hu_equity.bin";
     int top = 10;
     std::vector<std::string> shows;
     bool doReport = false, resetAvg = false, seedGiven = false;
@@ -241,6 +243,7 @@ int main(int argc, char** argv) {
         else if (a == "--memory") memory = std::atol(v);
         else if (a == "--out") outPath = v;
         else if (a == "--lock") lockDir = v;
+        else if (a == "--realization-table") rtPath = v;
         else if (a == "--top") top = std::atoi(v);
         else if (a == "--show") shows.push_back(v);
         else if (a == "--r") {
@@ -266,6 +269,12 @@ int main(int argc, char** argv) {
     Equity eq;
     if (!eq.loadHuTable(table)) std::printf("warning: no %s, heads-up equity will be sampled\n", table.c_str());
     Solver solver(cfg, sc, eq, seed);
+    if (!rtPath.empty()) {
+        RealizationTable rt;
+        if (std::string err; !loadRealizationTable(rtPath, rt, &err)) return std::fprintf(stderr, "%s\n", err.c_str()), 2;
+        solver.setRealizationTable(rt);
+        std::printf("realization table %s: %zu entries (%s)\n", rtPath.c_str(), rt.entries.size(), rt.source.c_str());
+    }
     std::vector<uint8_t> locked;
     Strategy chart(cfg, rc);
     if (!lockDir.empty()) {

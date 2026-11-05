@@ -119,6 +119,7 @@ int main() {
         std::memcpy(&b[4], &v7, sizeof v7);
         size_t at = 8 + sizeof(Config) + REALIZATION_V1_SIZE;
         b.erase(at, sizeof(RealizationConfig) - REALIZATION_V1_SIZE);
+        b.pop_back();  // version 9's "no realization table" byte
         std::ofstream("solver_test.strat", std::ios::binary) << b;
         Strategy t;
         assert(t.load("solver_test.strat") && t.realization().ipCall == 1 && t.realization().domPot == 0);

@@ -16,13 +16,23 @@ namespace pf {
 Solver::Solver(const Config& cfg, const SolverConfig& sc, const Equity& eq, uint32_t seed)
     : cfg_(cfg), sc_(sc), eq_(eq), tree_(cfg), rng_(seed),
       regret_(size_t(tree_.size()) * NBUCKETS), stratSum_(regret_.size()), terminal_(size_t(tree_.size()) * 3) {
+    buildTerminals();
+}
+
+void Solver::setRealizationTable(const RealizationTable& t) {
+    table_ = t;
+    buildTerminals();
+}
+
+void Solver::buildTerminals() {
+    const RealizationTable* t = table_.entries.empty() ? nullptr : &table_;
     std::mt19937 rng(0);  // cards don't affect the betting
     auto walk = [&](auto& self, const Hand& h, int node) -> void {
         for (int a = 0; a < 3; ++a)
             if (tree_.legal[node] >> a & 1) {
                 Hand c = h;
                 c.apply(Act(a));
-                if (c.done()) terminal_[node * 3 + a] = Terminal(c);
+                if (c.done()) terminal_[node * 3 + a] = Terminal(c, t);
                 else self(self, c, tree_.next[node][a]);
             }
     };
@@ -152,6 +162,7 @@ std::array<double, 3> Solver::averageRegret(int node, int bucket) const {
 
 Strategy Solver::average() const {
     Strategy s(cfg_, sc_.realization);
+    s.setRealizationTable(table_);
     for (int n = 0; n < tree_.size(); ++n)
         for (int b = 0; b < NBUCKETS; ++b) {
             const auto& ss = stratSum_[size_t(n) * NBUCKETS + b];

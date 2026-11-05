@@ -21,8 +21,8 @@ struct FlopSpot {
     Pos ip() const { return oop() == raiser ? caller : raiser; }
 };
 
-// Every flop terminal of the tree that is heads-up, not all-in, and 1-3 raises deep with no dead
-// money beyond the blinds: the open, 3-bet and 4-bet lines, one per (pot type, raiser, caller).
+// Every headsUpFlop() terminal of the tree: the open, 3-bet and 4-bet lines, one per
+// (pot type, raiser, caller).
 // Squeezes, cold calls of a 3-bet and cold 4-bets leave a folder's chips in the pot, so they are not
 // listed; realization() falls back to the formula there. Ordered by pot type, then history.
 std::vector<FlopSpot> flopSpots(const Config& cfg);

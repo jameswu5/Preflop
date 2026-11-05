@@ -73,10 +73,11 @@ const std::array<float, 3>& Strategy::probs(int node, int bucket) const { return
 std::array<float, 3>& Strategy::probs(int node, int bucket) { return p_[size_t(node) * NBUCKETS + bucket]; }
 
 // File: "PFST" u32 version, Config (raw), RealizationConfig (raw), i32 nodes,
-// then probs float[nodes][169][3].
+// then probs float[nodes][169][3], then u8 1 + the realization table (realization_table.h) or u8 0.
 // The tree itself is rebuilt from the Config and checked against the node count.
-// 7: RealizationConfig.oopCall/callerShrink; 8: ipCall/domPot (7 still loads, with their defaults).
-static constexpr uint32_t VERSION = 8;
+// 7: RealizationConfig.oopCall/callerShrink; 8: ipCall/domPot (7 still loads, with their defaults);
+// 9: the realization table (7 and 8 load without one).
+static constexpr uint32_t VERSION = 9;
 
 bool Strategy::save(const std::string& path) const {
     std::string tmp = path + ".tmp";
@@ -89,6 +90,8 @@ bool Strategy::save(const std::string& path) const {
         out.write(reinterpret_cast<const char*>(&rc_), sizeof rc_);
         out.write(reinterpret_cast<const char*>(&n), sizeof n);
         out.write(reinterpret_cast<const char*>(p_.data()), p_.size() * sizeof p_[0]);
+        out.put(char(!table_.entries.empty()));
+        if (!table_.entries.empty()) saveRealizationTable(out, table_);
         if (!out) return false;
     }
     return std::rename(tmp.c_str(), path.c_str()) == 0;  // never leave a half-written file
@@ -110,8 +113,14 @@ bool Strategy::load(const std::string& path) {
     Tree tree(cfg);
     if (n != tree.size()) return false;
     std::vector<std::array<float, 3>> p(size_t(n) * NBUCKETS);
-    if (!in.read(reinterpret_cast<char*>(p.data()), p.size() * sizeof p[0]) || in.peek() != EOF) return false;
-    cfg_ = cfg, rc_ = rc, tree_ = std::move(tree), p_ = std::move(p);
+    RealizationTable table;
+    if (!in.read(reinterpret_cast<char*>(p.data()), p.size() * sizeof p[0])) return false;
+    if (version >= 9) {
+        char has;
+        if (!in.get(has) || (has && !loadRealizationTable(in, table))) return false;
+    }
+    if (in.peek() != EOF) return false;
+    cfg_ = cfg, rc_ = rc, table_ = std::move(table), tree_ = std::move(tree), p_ = std::move(p);
     return true;
 }
 

@@ -86,7 +86,7 @@ static double playout(const Strategy& s, const Equity& e, Hand h, int node, int 
                       std::mt19937& rng, const RolloutConfig& rc) {
     playOn(s, h, node, user, a, rng);
     if (h.folded(user)) return -h.committed(user);
-    return utility(h, e, rng, rc.flopBoards, rc.rc)[user];
+    return utility(h, e, rng, rc.flopBoards, rc.rc, s.realizationTable())[user];
 }
 
 std::array<double, 3> rollout(const Strategy& s, const Equity& e, const Spot& sp, std::mt19937& rng,

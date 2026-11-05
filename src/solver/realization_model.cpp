@@ -115,6 +115,35 @@ static bool sameKey(const RealizationEntry& e, const FlopSpot& s) {
            std::abs(e.stackBB - s.stackBB) < 1e-9;
 }
 
+RealizationDiff diffRealizationTables(const RealizationTable& a, const RealizationTable& b) {
+    RealizationDiff d;
+    double sum = 0, total = 0;
+    for (const RealizationEntry& x : a.entries)
+        for (const RealizationEntry& y : b.entries) {
+            if (x.pot != y.pot || x.raiser != y.raiser || x.caller != y.caller || std::abs(x.potBB - y.potBB) > 1e-9 ||
+                std::abs(x.stackBB - y.stackBB) > 1e-9)
+                continue;
+            ++d.matched;
+            int p = int(x.pot);
+            for (int role = 0; role < 2; ++role) {
+                auto &ra = role ? x.rCaller : x.rRaiser, &rb = role ? y.rCaller : y.rRaiser;
+                auto &na = role ? x.nCaller : x.nRaiser, &nb = role ? y.nCaller : y.nRaiser;
+                for (int k = 0; k < NBUCKETS; ++k) {
+                    double w = (na[k] + nb[k]) / 2.0, dr = std::abs(double(ra[k]) - rb[k]);
+                    if (!(w > 0)) continue;
+                    d.mean[p][role] += w * dr, d.weight[p][role] += w, sum += w * dr, total += w;
+                    d.max[p][role] = std::max(d.max[p][role], dr);
+                }
+            }
+            break;
+        }
+    for (int p = 0; p < 3; ++p)
+        for (int role = 0; role < 2; ++role)
+            if (d.weight[p][role] > 0) d.mean[p][role] /= d.weight[p][role];
+    d.overall = total > 0 ? sum / total : 0;
+    return d;
+}
+
 RealizationTable fillRealizationTable(const RealizationTable& measured, const Strategy& s, const Equity& e, double tau,
                                       double ridge, RealizationModel* fitted) {
     struct Line {

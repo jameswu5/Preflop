@@ -6,6 +6,7 @@
 #include <random>
 
 #include "solver/equity.h"
+#include "solver/realization_table.h"
 #include "trainer/game.h"
 
 namespace pf {
@@ -64,6 +65,14 @@ double rake(const Hand& h);
 // All-in called: done() with every live player at currentBet() == stack.
 bool allIn(const Hand& h);
 
+// A heads-up flop that is not all-in, 1-3 raises deep, with no dead money beyond the blinds: the open,
+// 3-bet and 4-bet lines that measured realization covers (flopSpots, realization tables). Sets the
+// pot type, the last raiser and the other live player.
+bool headsUpFlop(const Hand& h, PotType& pot, Pos& raiser, Pos& caller);
+// The entry of `t` for a done() Hand: headsUpFlop() with the same pot type, seats, pot and stack. nullptr
+// if `t` is null or has none (multiway, all-in, squeeze, other bet sizes): realization() applies there.
+const RealizationEntry* findRealization(const RealizationTable* t, const Hand& h);
+
 // Everything payoffs() needs from a done() Hand except the cards; fixed by the betting history, so
 // the solver builds one per terminal up front.
 struct Terminal {
@@ -71,20 +80,23 @@ struct Terminal {
     double net = 0, spr = 0;     // pot minus rake; last live player's stack / pot
     int live = 0, last = -1, lastRaiser = -1;  // live seat bitmask, live seat acting last postflop
     bool allIn = false, reraised = false;
+    const RealizationEntry* table = nullptr;  // findRealization(); must outlive the Terminal
     Terminal() = default;
-    explicit Terminal(const Hand& h);
+    explicit Terminal(const Hand& h, const RealizationTable* t = nullptr);
 };
 
 // Payoffs at a done() Hand given each seat's equity (ignored if all but one folded):
 // share_i * (pot - rake) - contributed_i. All-in: share = eq, the showdown pot share.
-// Flop: share_i = R_i*eq_i / sum_j R_j*eq_j.
+// Flop: share_i = R_i*eq_i / sum_j R_j*eq_j, with R_i from the table entry for the player's role and
+// class where the Terminal has one and the class is present there (R > 0), else realization().
 std::array<double, NPOS> payoffs(const Hand& h, const std::array<double, NPOS>& eq,
-                                 const RealizationConfig& rc = {});
+                                 const RealizationConfig& rc = {}, const RealizationTable* table = nullptr);
 std::array<double, NPOS> payoffs(const Terminal& t, const Holes& cards, const std::array<double, NPOS>& eq,
                                  const RealizationConfig& rc);
 
 // payoffs() with eq from Equity::compute: 1 board for an all-in, `flopBoards` otherwise.
 std::array<double, NPOS> utility(const Hand& h, const Equity& e, std::mt19937& rng,
-                                 int flopBoards = 100, const RealizationConfig& rc = {});
+                                 int flopBoards = 100, const RealizationConfig& rc = {},
+                                 const RealizationTable* table = nullptr);
 
 }  // namespace pf

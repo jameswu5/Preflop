@@ -59,6 +59,11 @@ public:
     void reseed(uint32_t seed) { rng_.seed(seed); }  // e.g. independent runs from one checkpoint
     bool loadCheckpoint(const std::string& path, std::string* err = nullptr);  // err: why it failed
 
+    // Measured realization (utility.h payoffs()): heads-up flop terminals with an entry in `t` take R from
+    // it, the rest keep SolverConfig::realization. An empty table restores the formula everywhere. Carried
+    // into average(); not stored in checkpoints, so set it again when resuming.
+    void setRealizationTable(const RealizationTable& t);
+
 private:
     // Equity depends only on the hole cards and who is still in, so within one iteration it is
     // computed once per live set (and all-in vs flop) and reused by every terminal that shares it.
@@ -83,6 +88,7 @@ private:
     double terminal(Deal& d, int edge, int traverser, std::mt19937& rng);
     std::array<float, 3> regretMatch(int node, int bucket, bool shared) const;
     void iterate(long t, std::mt19937& rng, bool shared);
+    void buildTerminals();
 
     Config cfg_;
     SolverConfig sc_;
@@ -93,6 +99,7 @@ private:
     long loadedT_ = 0;  // iteration count of the last loaded checkpoint, for resetAverage's memory
     // [node * 169 + bucket], scaled by scale(t_): see weight().
     std::vector<std::array<float, 3>> regret_, stratSum_;
+    RealizationTable table_;          // terminal_ points into it
     std::vector<Terminal> terminal_;  // [node * 3 + action] where that action ends the hand
     std::vector<uint8_t> locked_;                 // [node * 169 + bucket]; empty = nothing locked
     std::vector<std::array<float, 3>> fixed_;     // the locked probabilities, same indexing

@@ -16,16 +16,9 @@ static void walk(const Hand& h, std::vector<Act>& hist, std::vector<FlopSpot>& o
         }
         return;
     }
-    const Config& cfg = h.config();
-    int live = 0, other = -1;
-    for (int p = 0; p < NPOS; ++p) {
-        if (!h.folded(p)) ++live, other = p != h.lastRaiser() ? p : other;
-        else if (h.committed(p) != (p == SB ? cfg.sb : p == BB ? cfg.bb : 0)) return;  // dead money
-    }
-    if (live != 2 || allIn(h) || h.raises() < 1 || h.raises() > 3) return;
     FlopSpot s;
-    s.pot = PotType(h.raises() - 1), s.raiser = Pos(h.lastRaiser()), s.caller = Pos(other);
-    s.history = hist, s.potBB = h.pot(), s.stackBB = h.stack(other);
+    if (!headsUpFlop(h, s.pot, s.raiser, s.caller)) return;
+    s.history = hist, s.potBB = h.pot(), s.stackBB = h.stack(s.caller);
     out.push_back(s);
 }
 

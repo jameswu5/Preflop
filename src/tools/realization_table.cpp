@@ -7,8 +7,9 @@
 //   --strategy  ranges from this solve (default data/strategy_anchored.bin)
 //   --charts    play the charts in dir over the strategy first (applyCharts), e.g. ref
 //   --records   one line per solved (spot, flop), appended as it finishes (default <out>.records).
-//               A rerun skips the pairs already there, so an interrupted run resumes; delete the file
-//               to start over (it must come from the same strategy and settings).
+//               A rerun skips the pairs already there, so an interrupted run resumes. The first line
+//               holds the settings (strategy, charts, solve target, flop sample, tree); a rerun with
+//               other settings is refused: delete the file or pick another --records to start over.
 //   --threads   solver threads per flop (post::Options::threads, default 1)
 //   --jobs N    flops solved at once (default 1); only with --threads 1
 //   --flops N   a sample of N canonical flops (sampleFlops; default 0 = all 1755)
@@ -106,9 +107,19 @@ static std::string historyText(const std::vector<Act>& h) {
 // class, as RealizationAccum sums for that flop alone (multiplicity 1), in hex floats so they are exact.
 using Sums = std::array<std::array<double, NBUCKETS>, 6>;  // ev[0], ev[1], eq[0], eq[1], n[0], n[1]
 
-static std::map<std::string, Sums> readRecords(const std::string& path) {
-    std::map<std::string, Sums> out;
+// The records in `path` (none if it is missing or empty). false, with `err` set, if its first line
+// isn't `header`: records made with other settings must never mix into one table.
+static bool readRecords(const std::string& path, const std::string& header, std::map<std::string, Sums>& out,
+                        std::string& err) {
+    out.clear();
     std::ifstream in(path);
+    std::string first;
+    if (!std::getline(in, first)) return true;
+    if (first != header) {
+        err = path + " was made with other settings:\n  file: " + first + "\n  now:  " + header +
+              "\ndelete it or pick another --records to start over";
+        return false;
+    }
     for (std::string line; std::getline(in, line);) {
         std::istringstream ls(line);
         std::string hist, flop;
@@ -124,7 +135,7 @@ static std::map<std::string, Sums> readRecords(const std::string& path) {
             }
         if (ok) out[hist + " " + flop] = s;  // a half-written last line (interrupted run) is dropped
     }
-    return out;
+    return true;
 }
 
 int main(int argc, char** argv) {
@@ -189,7 +200,14 @@ int main(int argc, char** argv) {
     const auto flops = sampleFlops(nFlops);
     auto spots = flopSpots(s.config());
     if (spots.size() > maxSpots) spots.resize(maxSpots);
-    auto done = readRecords(recPath);
+    // Everything a record depends on; also the table's source.
+    const std::string settings = "solver strategy=" + stratPath + (chartDir.empty() ? "" : " charts=" + chartDir) +
+                                 " iters=" + std::to_string(opt.maxIters) + " expl=" + std::to_string(opt.targetExpl) +
+                                 " flops=" + std::to_string(std::size(flops)) + " sample=" + std::to_string(nFlops) +
+                                 " tree: " + treeText;
+    const std::string header = "# " + settings;
+    std::map<std::string, Sums> done;
+    if (std::string err; !readRecords(recPath, header, done, err)) return std::fprintf(stderr, "%s\n", err.c_str()), 1;
     std::vector<std::pair<int, int>> todo;  // (spot, flop) still to solve
     for (int i = 0; i < int(spots.size()); ++i)
         for (int f = 0; f < int(std::size(flops)); ++f)
@@ -197,8 +215,10 @@ int main(int argc, char** argv) {
     std::printf("%zu spots x %zu flops: %zu recorded, %zu to solve\n", spots.size(), std::size(flops), done.size(),
                 todo.size());
 
+    bool fresh = !std::ifstream(recPath).good() || std::ifstream(recPath).peek() == EOF;
     std::FILE* rec = std::fopen(recPath.c_str(), "a");
     if (!rec) return std::fprintf(stderr, "cannot append to %s\n", recPath.c_str()), 1;
+    if (fresh) std::fprintf(rec, "%s\n", header.c_str()), std::fflush(rec);
     std::mutex mu;
     std::atomic<size_t> next{0};
     auto worker = [&] {
@@ -235,11 +255,9 @@ int main(int argc, char** argv) {
     std::fclose(rec);
 
     // Every pair is recorded now: assemble the table from the records alone.
-    done = readRecords(recPath);
+    if (std::string err; !readRecords(recPath, header, done, err)) return std::fprintf(stderr, "%s\n", err.c_str()), 1;
     RealizationTable table;
-    table.source = "solver strategy=" + stratPath + (chartDir.empty() ? "" : " charts=" + chartDir) +
-                   " iters=" + std::to_string(opt.maxIters) + " expl=" + std::to_string(opt.targetExpl) +
-                   " flops=" + std::to_string(std::size(flops)) + " tree: " + treeText;
+    table.source = settings;
     for (const FlopSpot& fs : spots) {
         RealizationAccum acc(fs);
         for (const Flop& f : flops) {

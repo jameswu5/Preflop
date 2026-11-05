@@ -7,9 +7,11 @@
 // there is no runout subtree: the showdown node sums the sweep over every runout instead.
 #include <algorithm>
 #include <atomic>
+#include <cassert>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <memory>
 #include <thread>
 #include <unordered_map>
 
@@ -35,14 +37,18 @@ struct Node {
 
 struct Chance {
     std::vector<int> card;                   // dealt card per child
-    std::vector<std::array<int, 3>> mapped;  // {child, hand permutation, card} for the other orbit cards
+    std::vector<std::array<int, 3>> mapped;  // {child, hand permutation, card} for the other orbit cards, by child
+    std::vector<int> first;                  // mapped[first[k] .. first[k + 1]) belong to child k
     float scale = 0;                         // 1 / cards left once both hands are out
     bool parallel = false;
 };
 
 struct Runout {  // every completion of a board, by river_ index
-    std::vector<int> rivers;
+    std::vector<int> rivers, card;  // card: the river dealt, on a turn board
     float scale = 0;  // 1 / completions once both hands are out
+    // Turn or flop board: pair[p][h * n_opp + o] = P(p's h beats o) - P(o beats h) over the
+    // runouts, 0 for hands sharing a card, so a showdown is one matrix-vector product.
+    std::vector<float> pair[2];
 };
 
 struct River {  // one complete board: each player's unblocked hands, ascending strength
@@ -60,6 +66,27 @@ struct State {
 
 constexpr double EPS = 1e-9;
 
+// Per-thread stack of float buffers for the traversal: scratch() takes from the top and a Frame
+// gives everything taken since it was made back on destruction. Sized for the deepest tree path.
+struct Stack {
+    std::unique_ptr<float[]> buf{new float[SIZE]};
+    size_t top = 0;
+    static constexpr size_t SIZE = size_t(1) << 22;
+};
+thread_local Stack tls;
+
+struct Frame {
+    size_t top = tls.top;
+    ~Frame() { tls.top = top; }
+};
+
+float* scratch(size_t n) {
+    float* p = tls.buf.get() + tls.top;
+    tls.top += (n + 15) & ~size_t(15);
+    assert(tls.top <= Stack::SIZE);
+    return p;
+}
+
 class Solver {
 public:
     Solver(const Spot& spot, const std::vector<int>& board, const Options& opt)
@@ -74,6 +101,11 @@ public:
                     if (w > 0 && !(dead >> a & 1) && !(dead >> b & 1))
                         hands_[p].push_back({uint8_t(a), uint8_t(b)}), w_[p].push_back(w);
                 }
+        for (int p = 0; p < 2; ++p)
+            for (int h = 0; h < nh(p); ++h) {
+                card0_[p].push_back(hands_[p][h][0]), card1_[p].push_back(hands_[p][h][1]);
+                blocked_[p][hands_[p][h][0]].push_back(uint16_t(h)), blocked_[p][hands_[p][h][1]].push_back(uint16_t(h));
+            }
         for (int p = 0; p < 2; ++p) {
             std::vector<int> at(NCOMBOS, -1);
             for (int h = 0; h < nh(1 - p); ++h) at[combo(1 - p, h)] = h;
@@ -120,6 +152,7 @@ public:
     void stats(Stats& st) const {
         st.bytes = 2 * arena_ * sizeof(float) + nodes_.size() * sizeof(Node) + kids_.size() * sizeof(int);
         for (const River& rv : river_) st.bytes += (rv.order[0].size() + rv.order[1].size()) * 6;
+        for (const Runout& ro : runout_) st.bytes += (ro.pair[0].size() + ro.pair[1].size()) * sizeof(float);
         st.nodes = nodes_.size();
         st.actionNodes = std::count_if(nodes_.begin(), nodes_.end(), [](const Node& n) { return n.kind == ACTION; });
         st.hands[0] = nh(0), st.hands[1] = nh(1);
@@ -132,6 +165,8 @@ private:
     int threads_ = 1, root_ = 0;
     std::vector<std::array<uint8_t, 2>> hands_[2];
     Vec w_[2];
+    std::vector<uint8_t> card0_[2], card1_[2];      // each hand's two cards
+    std::vector<uint16_t> blocked_[2][52];          // hands holding each card
     std::vector<int> same_[2];  // index of the same combo in the other player's list, -1 if absent
     std::array<std::array<int, 4>, 24> perm_{};
     int inv_[24] = {};
@@ -143,6 +178,7 @@ private:
     std::vector<River> river_;
     std::unordered_map<uint64_t, int> riverId_;
     std::vector<Runout> runout_;
+    std::unordered_map<uint64_t, int> runoutId_;
     std::vector<int> board_;
     size_t arena_ = 0;
     Vec regret_, sum_;
@@ -246,8 +282,7 @@ private:
         if (s.street == 2 || std::min(stack_ - s.c[0], stack_ - s.c[1]) <= EPS) {
             Node nd{SHOWDOWN};
             nd.contrib[0] = float(s.c[0]), nd.contrib[1] = float(s.c[1]);
-            nd.aux = int(runout_.size());
-            runout_.push_back(runouts(s.board));
+            nd.aux = runoutFor(s.board);
             return add(nd);
         }
         uint64_t dead = 0;
@@ -272,6 +307,10 @@ private:
                     break;
                 }
         }
+        std::stable_sort(ch.mapped.begin(), ch.mapped.end(), [](auto& x, auto& y) { return x[0] < y[0]; });
+        ch.first.assign(ch.card.size() + 1, 0);
+        for (auto& mp : ch.mapped) ++ch.first[mp[0] + 1];
+        for (size_t k = 0; k < ch.card.size(); ++k) ch.first[k + 1] += ch.first[k];
         Node nd{CHANCE};
         nd.contrib[0] = float(s.c[0]), nd.contrib[1] = float(s.c[1]);
         int n = add(nd);
@@ -289,6 +328,14 @@ private:
         return n;
     }
 
+    int runoutFor(const std::vector<int>& board) {
+        uint64_t mask = 0;
+        for (int c : board) mask |= 1ull << c;
+        if (auto it = runoutId_.find(mask); it != runoutId_.end()) return it->second;
+        runout_.push_back(runouts(board));
+        return runoutId_[mask] = int(runout_.size()) - 1;
+    }
+
     Runout runouts(const std::vector<int>& board) {
         uint64_t dead = 0;
         for (int c : board) dead |= 1ull << c;
@@ -303,8 +350,35 @@ private:
             for (int r = t + 1; r < 52 && !(dead >> t & 1); ++r)
                 if (!(dead >> r & 1)) b5[3] = t, b5[4] = r, ro.rivers.push_back(riverFor(b5));
         for (int r = 0; r < 52 && board.size() == 4; ++r)
-            if (!(dead >> r & 1)) b5[4] = r, ro.rivers.push_back(riverFor(b5));
+            if (!(dead >> r & 1)) b5[4] = r, ro.rivers.push_back(riverFor(b5)), ro.card.push_back(r);
+        if (board.size() == 3) pairTable(ro);  // a turn board: its 44 sweeps are cheaper than the product
         return ro;
+    }
+
+    void pairTable(Runout& ro) const {
+        int n0 = nh(0), n1 = nh(1);
+        std::vector<float> d(size_t(n0) * n1);
+        std::vector<int> s0(n0), s1(n1);
+        for (int id : ro.rivers) {
+            const River& rv = river_[id];
+            std::fill(s0.begin(), s0.end(), -1), std::fill(s1.begin(), s1.end(), -1);
+            for (size_t i = 0; i < rv.order[0].size(); ++i) s0[rv.order[0][i]] = rv.strength[0][i];
+            for (size_t i = 0; i < rv.order[1].size(); ++i) s1[rv.order[1][i]] = rv.strength[1][i];
+            for (int h = 0; h < n0; ++h) {
+                if (s0[h] < 0) continue;
+                float* row = &d[size_t(h) * n1];
+                for (int o = 0; o < n1; ++o)
+                    row[o] += s1[o] < 0 ? 0.0f : float((s0[h] > s1[o]) - (s0[h] < s1[o]));
+            }
+        }
+        ro.pair[0].resize(d.size()), ro.pair[1].resize(d.size());
+        for (int h = 0; h < n0; ++h)
+            for (int o = 0; o < n1; ++o) {
+                bool overlap = card0_[0][h] == card0_[1][o] || card0_[0][h] == card1_[1][o] ||
+                               card1_[0][h] == card0_[1][o] || card1_[0][h] == card1_[1][o];
+                float x = overlap ? 0 : d[size_t(h) * n1 + o] * ro.scale;
+                ro.pair[0][size_t(h) * n1 + o] = x, ro.pair[1][size_t(o) * n0 + h] = -x;
+            }
     }
 
     int riverFor(const std::vector<int>& board) {
@@ -332,83 +406,110 @@ private:
     // ---- traversal ----
 
     // compat[h] = opponent reach over hands sharing no card with tr's hand h.
-    void compatSums(int tr, const float* reach, float* compat) const {
+    [[gnu::noinline]] void compatSums(int tr, const float* reach, float* compat) const {
+        int op = 1 - tr, no = nh(op), nt = nh(tr);
+        const uint8_t *t0 = card0_[tr].data(), *t1 = card1_[tr].data();
+        const int* same = same_[tr].data();
+        float total = 0, card[52];
+        for (int o = 0; o < no; ++o) total += reach[o];
+        for (int c = 0; c < 52; ++c) {  // gather per card: no store-to-load chains, unlike scatter
+            float x = 0;
+            for (uint16_t o : blocked_[op][c]) x += reach[o];
+            card[c] = x;
+        }
+        for (int h = 0; h < nt; ++h)
+            compat[h] = total - card[t0[h]] - card[t1[h]] + (same[h] >= 0 ? reach[same[h]] : 0);
+    }
+
+    // For tr's hands on this river, out[h] += a * (reach beaten - reach beating) + b * compat. One
+    // ascending pass: per group of equal strength, the reach strictly below (W) and up to and
+    // including it (WE) give beating = compat - WE. Opponent hands blocked by the board must have
+    // zero reach; tr's blocked hands are left untouched.
+    [[gnu::noinline]] void sweep(const River& rv, int tr, const float* reach, float a, float b, float* out) const {
         int op = 1 - tr;
-        double total = 0, card[52] = {};
-        for (int o = 0; o < nh(op); ++o) {
-            total += reach[o];
-            card[hands_[op][o][0]] += reach[o], card[hands_[op][o][1]] += reach[o];
-        }
-        for (int h = 0; h < nh(tr); ++h) {
-            int s = same_[tr][h];
-            compat[h] = float(total - card[hands_[tr][h][0]] - card[hands_[tr][h][1]] + (s >= 0 ? reach[s] : 0));
-        }
-    }
-
-    // For tr's hands on this board: diff = reach beaten - reach beating, compat as above (only
-    // hands on the board's lists are counted). Hands off the board are left untouched.
-    void sweep(const River& rv, int tr, const float* reach, float* diff, float* compat) const {
-        int op = 1 - tr;
-        const auto &ot = rv.order[tr], &oo = rv.order[op];
-        const auto &st = rv.strength[tr], &so = rv.strength[op];
-        const auto &ht = hands_[tr], &ho = hands_[op];
-        double total = 0, card[52] = {};
-        for (int o : oo) total += reach[o], card[ho[o][0]] += reach[o], card[ho[o][1]] += reach[o];
-        for (size_t i = 0; i < ot.size(); ++i) {
-            int h = ot[i], s = same_[tr][h];
-            compat[h] = float(total - card[ht[h][0]] - card[ht[h][1]] + (s >= 0 ? reach[s] : 0));
-        }
-        double run = 0, rc[52] = {};
-        for (size_t i = 0, j = 0; i < ot.size(); ++i) {
-            for (; j < oo.size() && so[j] < st[i]; ++j) {
-                int o = oo[j];
-                run += reach[o], rc[ho[o][0]] += reach[o], rc[ho[o][1]] += reach[o];
+        const uint16_t *ot = rv.order[tr].data(), *oo = rv.order[op].data();
+        const int *st = rv.strength[tr].data(), *so = rv.strength[op].data();
+        int mt = int(rv.order[tr].size()), mo = int(rv.order[op].size());
+        const uint8_t *o0 = card0_[op].data(), *o1 = card1_[op].data(), *t0 = card0_[tr].data(), *t1 = card1_[tr].data();
+        const int* same = same_[tr].data();
+        Frame f;
+        float *compat = scratch(nh(tr)), *w = scratch(mt);
+        compatSums(tr, reach, compat);
+        float run = 0, rc[52] = {};
+        for (int i = 0, j = 0; i < mt;) {
+            int g = i, s = st[i];
+            for (; j < mo && so[j] < s; ++j) {
+                float r = reach[oo[j]];
+                run += r, rc[o0[oo[j]]] += r, rc[o1[oo[j]]] += r;
             }
-            int h = ot[i];
-            diff[h] = float(run - rc[ht[h][0]] - rc[ht[h][1]]);
-        }
-        run = 0, std::fill(rc, rc + 52, 0.0);
-        for (size_t i = ot.size(), j = oo.size(); i-- > 0;) {
-            for (; j > 0 && so[j - 1] > st[i]; --j) {
-                int o = oo[j - 1];
-                run += reach[o], rc[ho[o][0]] += reach[o], rc[ho[o][1]] += reach[o];
+            for (; g < mt && st[g] == s; ++g) w[g] = run - rc[t0[ot[g]]] - rc[t1[ot[g]]];
+            for (; j < mo && so[j] == s; ++j) {
+                float r = reach[oo[j]];
+                run += r, rc[o0[oo[j]]] += r, rc[o1[oo[j]]] += r;
             }
-            int h = ot[i];
-            diff[h] -= float(run - rc[ht[h][0]] - rc[ht[h][1]]);
+            for (; i < g; ++i) {
+                int h = ot[i];
+                float we = run - rc[t0[h]] - rc[t1[h]] + (same[h] >= 0 ? reach[same[h]] : 0);
+                out[h] += a * (w[i] + we - compat[h]) + b * compat[h];
+            }
         }
     }
 
-    // sweep() averaged over the runouts (zeroed first).
-    void showdown(const Runout& ro, int tr, const float* reach, float* diff, float* compat) const {
-        if (ro.rivers.size() == 1) return sweep(river_[ro.rivers[0]], tr, reach, diff, compat);
-        int nt = nh(tr);
-        Vec d(nt), c(nt);
-        for (int id : ro.rivers) {
-            std::fill(d.begin(), d.end(), 0.0f), std::fill(c.begin(), c.end(), 0.0f);
-            sweep(river_[id], tr, reach, d.data(), c.data());
-            for (int h = 0; h < nt; ++h) diff[h] += d[h], compat[h] += c[h];
+    // out = a * diff + b * compat, averaged over the runouts.
+    void showdown(const Runout& ro, int tr, const float* reach, float a, float b, float* out) const {
+        int nt = nh(tr), no = nh(1 - tr);
+        if (ro.rivers.size() == 1) {
+            std::fill(out, out + nt, 0.0f);
+            return sweep(river_[ro.rivers[0]], tr, reach, a, b, out);
         }
-        for (int h = 0; h < nt; ++h) diff[h] *= ro.scale, compat[h] *= ro.scale;
+        if (ro.pair[tr].empty()) {  // a turn board
+            Frame f;
+            float* r = scratch(no);
+            std::fill(out, out + nt, 0.0f);
+            for (size_t i = 0; i < ro.rivers.size(); ++i) {
+                dealReach(1 - tr, ro.card[i], reach, r);
+                sweep(river_[ro.rivers[i]], tr, r, a * ro.scale, b * ro.scale, out);
+            }
+            return;
+        }
+        compatSums(tr, reach, out);
+        const float* d = ro.pair[tr].data();
+        for (int h = 0; h < nt; ++h) {
+            float x = 0;
+            for (int o = 0; o < no; ++o) x += d[size_t(h) * no + o] * reach[o];
+            out[h] = a * x + b * out[h];
+        }
     }
 
-    static void matching(const float* r, int na, int n, float* s) {  // regret matching
-        for (int h = 0; h < n; ++h) {
-            float tot = 0;
-            for (int a = 0; a < na; ++a) tot += std::max(r[a * n + h], 0.0f);
-            for (int a = 0; a < na; ++a) s[a * n + h] = tot > 0 ? std::max(r[a * n + h], 0.0f) / tot : 1.0f / na;
-        }
+    [[gnu::noinline]] static void matching(const float* r, int na, int n, float* s, float* tot) {  // regret matching
+        std::fill(tot, tot + n, 0.0f);
+        for (int a = 0; a < na; ++a)
+            for (int h = 0; h < n; ++h) tot[h] += std::max(r[a * n + h], 0.0f);
+        for (int h = 0; h < n; ++h) tot[h] = tot[h] > 0 ? 1 / tot[h] : 0;
+        float u = 1.0f / na;
+        for (int a = 0; a < na; ++a)
+            for (int h = 0; h < n; ++h) s[a * n + h] = tot[h] > 0 ? std::max(r[a * n + h], 0.0f) * tot[h] : u;
     }
-    static void average(const float* sum, int na, int n, float* s) {
-        for (int h = 0; h < n; ++h) {
-            float tot = 0;
-            for (int a = 0; a < na; ++a) tot += sum[a * n + h];
-            for (int a = 0; a < na; ++a) s[a * n + h] = tot > 0 ? sum[a * n + h] / tot : 1.0f / na;
-        }
+    [[gnu::noinline]] static void average(const float* sum, int na, int n, float* s, float* tot) {
+        std::fill(tot, tot + n, 0.0f);
+        for (int a = 0; a < na; ++a)
+            for (int h = 0; h < n; ++h) tot[h] += sum[a * n + h];
+        for (int h = 0; h < n; ++h) tot[h] = tot[h] > 0 ? 1 / tot[h] : 0;
+        float u = 1.0f / na;
+        for (int a = 0; a < na; ++a)
+            for (int h = 0; h < n; ++h) s[a * n + h] = tot[h] > 0 ? sum[a * n + h] * tot[h] : u;
+    }
+
+    // Reach with the hands holding card c removed.
+    void dealReach(int op, int c, const float* reach, float* r) const {
+        std::copy(reach, reach + nh(op), r);
+        for (uint16_t o : blocked_[op][c]) r[o] = 0;
     }
 
     void walk(int n, int tr, const float* reach, float* out, Mode m) {
         const Node& nd = nodes_[n];
         int op = 1 - tr, nt = nh(tr), no = nh(op);
+        Frame frame;
         switch (nd.kind) {
         case FOLD: {
             float pay = nd.player == tr ? -nd.contrib[tr] : float(pot_) + nd.contrib[op];
@@ -416,43 +517,44 @@ private:
             for (int h = 0; h < nt; ++h) out[h] *= pay;
             return;
         }
-        case SHOWDOWN: {
-            Vec diff(nt), compat(nt);
-            showdown(runout_[nd.aux], tr, reach, diff.data(), compat.data());
-            float a = nd.contrib[0] + float(pot_) / 2, b = float(pot_) / 2;
-            for (int h = 0; h < nt; ++h) out[h] = a * diff[h] + b * compat[h];
+        case SHOWDOWN:
+            showdown(runout_[nd.aux], tr, reach, nd.contrib[0] + float(pot_) / 2, float(pot_) / 2, out);
             return;
-        }
         case CHANCE: {
             const Chance& ch = chance_[nd.aux];
             int nk = nd.nKids;
-            std::vector<Vec> vals(nk, Vec(nt));
-            std::atomic<int> next{0};
-            auto work = [&] {
-                Vec r(no);
-                for (int k; (k = next++) < nk;) {
-                    int c = ch.card[k];
-                    for (int o = 0; o < no; ++o)
-                        r[o] = hands_[op][o][0] == c || hands_[op][o][1] == c ? 0 : reach[o];
-                    walk(kids_[nd.kids + k], tr, r.data(), vals[k].data(), m);
-                    for (int h = 0; h < nt; ++h)
-                        if (hands_[tr][h][0] == c || hands_[tr][h][1] == c) vals[k][h] = 0;
+            auto finish = [&](int k, float* v) {  // zero tr's blocked hands, add v and its orbit images
+                for (uint16_t h : blocked_[tr][ch.card[k]]) v[h] = 0;
+                for (int h = 0; h < nt; ++h) out[h] += v[h];
+                for (int i = ch.first[k]; i < ch.first[k + 1]; ++i) {
+                    const int* hp = hperm_[tr][ch.mapped[i][1]].data();
+                    for (int h = 0; h < nt; ++h) out[h] += v[hp[h]];
                 }
             };
+            std::fill(out, out + nt, 0.0f);
             if (ch.parallel && threads_ > 1) {
+                float* vals = scratch(size_t(nk) * nt);
+                std::atomic<int> next{0};
+                auto work = [&] {
+                    Frame f;
+                    float* r = scratch(no);
+                    for (int k; (k = next++) < nk;) {
+                        dealReach(op, ch.card[k], reach, r);
+                        walk(kids_[nd.kids + k], tr, r, vals + size_t(k) * nt, m);
+                    }
+                };
                 std::vector<std::thread> pool;
                 for (int i = 1; i < std::min(threads_, nk); ++i) pool.emplace_back(work);
                 work();
                 for (auto& th : pool) th.join();
+                for (int k = 0; k < nk; ++k) finish(k, vals + size_t(k) * nt);
             } else {
-                work();
-            }
-            std::fill(out, out + nt, 0.0f);
-            for (int k = 0; k < nk; ++k)
-                for (int h = 0; h < nt; ++h) out[h] += vals[k][h];
-            for (auto [k, pk, c] : ch.mapped) {
-                const int* hp = hperm_[tr][pk].data();
-                for (int h = 0; h < nt; ++h) out[h] += vals[k][hp[h]];
+                float *r = scratch(no), *v = scratch(nt);
+                for (int k = 0; k < nk; ++k) {
+                    dealReach(op, ch.card[k], reach, r);
+                    walk(kids_[nd.kids + k], tr, r, v, m);
+                    finish(k, v);
+                }
             }
             for (int h = 0; h < nt; ++h) out[h] *= ch.scale;
             return;
@@ -463,39 +565,43 @@ private:
         int na = nd.nKids, p = nd.player, np = nh(p);
         float* reg = regret_.data() + nd.off;
         float* sum = sum_.data() + nd.off;
-        Vec s(size_t(na) * np);
-        if (m == TRAIN) matching(reg, na, np, s.data());
-        else if (p != tr || m == EVAL) average(sum, na, np, s.data());
+        float *s = scratch(size_t(na) * np), *tmp = scratch(np);
+        if (m == TRAIN) matching(reg, na, np, s, tmp);
+        else if (p != tr || m == EVAL) average(sum, na, np, s, tmp);
 
         if (p == tr) {
-            Vec v(size_t(na) * nt);
-            for (int a = 0; a < na; ++a) walk(kids_[nd.kids + a], tr, reach, &v[size_t(a) * nt], m);
-            for (int h = 0; h < nt; ++h) {
-                float e = m == BEST ? v[h] : 0;
-                for (int a = 0; a < na; ++a)
-                    e = m == BEST ? std::max(e, v[a * nt + h]) : e + s[a * nt + h] * v[a * nt + h];
-                out[h] = e;
+            float* v = scratch(size_t(na) * nt);
+            for (int a = 0; a < na; ++a) walk(kids_[nd.kids + a], tr, reach, v + size_t(a) * nt, m);
+            if (m == BEST) {
+                std::copy(v, v + nt, out);
+                for (int a = 1; a < na; ++a)
+                    for (int h = 0; h < nt; ++h) out[h] = std::max(out[h], v[a * nt + h]);
+                return;
             }
+            std::fill(out, out + nt, 0.0f);
+            for (int a = 0; a < na; ++a)
+                for (int h = 0; h < nt; ++h) out[h] += s[a * nt + h] * v[a * nt + h];
             if (m == TRAIN)
                 for (int a = 0; a < na; ++a)
                     for (int h = 0; h < nt; ++h) {
-                        float& r = reg[a * nt + h];
-                        r = r * (r > 0 ? dpos_ : dneg_) + v[a * nt + h] - out[h];
+                        float r = reg[a * nt + h];
+                        reg[a * nt + h] = r * (r > 0 ? dpos_ : dneg_) + v[a * nt + h] - out[h];
                     }
             return;
         }
 
         std::fill(out, out + nt, 0.0f);
-        Vec r(no), v(nt);
+        float *r = scratch(no), *v = scratch(nt);
         for (int a = 0; a < na; ++a) {
-            bool any = false;
-            for (int o = 0; o < no; ++o) any |= (r[o] = reach[o] * s[a * no + o]) > 0;
-            if (!any) continue;
-            walk(kids_[nd.kids + a], tr, r.data(), v.data(), m);
+            float any = 0;
+            for (int o = 0; o < no; ++o) any += r[o] = reach[o] * s[a * no + o];
+            if (any <= 0) continue;
+            walk(kids_[nd.kids + a], tr, r, v, m);
             for (int h = 0; h < nt; ++h) out[h] += v[h];
         }
         if (m == TRAIN)
-            for (size_t i = 0; i < s.size(); ++i) sum[i] = sum[i] * dsum_ + reach[i % no] * s[i];
+            for (int a = 0; a < na; ++a)
+                for (int o = 0; o < no; ++o) sum[a * no + o] = sum[a * no + o] * dsum_ + reach[o] * s[a * no + o];
     }
 
     double norm() const {  // total weight of compatible (OOP, IP) pairs
@@ -519,10 +625,18 @@ private:
 
     // Showdown equity of p's hands against the opponent's preflop range, over every runout.
     Vec equity(int p) {
-        Vec diff(nh(p)), compat(nh(p));
-        showdown(runouts(board_), p, w_[1 - p].data(), diff.data(), compat.data());
-        for (int h = 0; h < nh(p); ++h) diff[h] = compat[h] > 0 ? (diff[h] + compat[h]) / 2 / compat[h] : 0;
-        return diff;
+        Vec num(nh(p)), compat(nh(p));
+        // Per-river sweeps even where the tree uses the pair table, so tests can check one against the other.
+        const Runout& ro = runout_[runoutFor(board_)];
+        Vec r(nh(1 - p));
+        for (int id : ro.rivers) {
+            std::fill(r.begin(), r.end(), 0.0f);
+            for (uint16_t o : river_[id].order[1 - p]) r[o] = w_[1 - p][o];  // the board's unblocked hands
+            sweep(river_[id], p, r.data(), 0.5f, 0.5f, num.data());  // (diff + compat) / 2
+            sweep(river_[id], p, r.data(), 0, 1, compat.data());
+        }
+        for (int h = 0; h < nh(p); ++h) num[h] = compat[h] > 0 ? num[h] / compat[h] : 0;
+        return num;
     }
 };
 

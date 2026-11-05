@@ -27,7 +27,8 @@ add_library(trainer src/trainer/game.cpp src/solver/cards.cpp src/solver/equity.
     src/solver/mccfr.cpp src/solver/range.cpp src/trainer/trainer.cpp
     src/solver/realization_table.cpp
     src/solver/spots.cpp
-    src/solver/flops.cpp)
+    src/solver/flops.cpp
+    src/solver/board_equity.cpp)
 target_include_directories(trainer PUBLIC src)
 target_link_libraries(trainer PUBLIC pheval)
 
@@ -64,6 +65,9 @@ add_test(NAME spots_test COMMAND spots_test)
 add_executable(flops_test tests/flops_test.cpp)
 target_link_libraries(flops_test trainer)
 add_test(NAME flops_test COMMAND flops_test)
+add_executable(board_equity_test tests/board_equity_test.cpp)
+target_link_libraries(board_equity_test trainer)
+add_test(NAME board_equity_test COMMAND board_equity_test)
 
 add_executable(gen_equity src/tools/gen_equity.cpp)
 target_link_libraries(gen_equity trainer Threads::Threads)
@@ -85,6 +89,10 @@ add_test(NAME gen_features_check COMMAND gen_features --samples 20000 --out ${CM
 add_executable(pushfold_trace src/tools/pushfold_trace.cpp)
 target_link_libraries(pushfold_trace trainer Threads::Threads)
 target_compile_definitions(pushfold_trace PRIVATE DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+add_executable(gen_flop_strength src/tools/gen_flop_strength.cpp)
+target_link_libraries(gen_flop_strength trainer Threads::Threads)
+target_compile_definitions(gen_flop_strength PRIVATE DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+add_test(NAME gen_flop_strength_check COMMAND gen_flop_strength --flops 2 --threads 1)
 add_executable(dump_range src/tools/dump_range.cpp)
 target_link_libraries(dump_range trainer)
 add_executable(solve src/tools/solve.cpp)

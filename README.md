@@ -51,6 +51,8 @@ build/preflop
 
 With no arguments it loads `data/strategy_6max.bin` and `data/hu_equity.bin`, which is what you want. To use another strategy file, pass its path as the first argument, e.g. `build/preflop data/strategy_hu.bin`. A path that doesn't load does not stop the GUI: it prints `could not load <path>, using uniform strategy` in the terminal and the bots play at random. If the charts look uniform, check the terminal for that line.
 
+On macOS, `sh src/tools/make_app.sh` builds and installs `/Applications/Preflop.app`, with its own copy of the solves and charts. Rerun it after a new solve. Chart edits made in the app are lost when it is reinstalled. The app is for personal use, since it contains `ref/`.
+
 Keys: `F` / `C` / `R` fold, call, raise · `Space` next hand · `H` review your last decision (click a player for theirs; `←` / `→` step through the hand) · `P` spot picker · `S` stats · `E` chart painter · `I` realization inspector · `T` cycle Scratch / GTO / PTO mode (from the next hand) · `Esc` close a panel.
 
 **Strategies.** Two solves, and two chart sets played over them:
